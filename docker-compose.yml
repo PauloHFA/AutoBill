@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  autobill:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autobill
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-m", "autobill.ops.health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Ollama for local LLM vision
+  ollama:
+    image: ollama/ollama:latest
+    container_name: autobill-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    profiles:
+      - local-llm
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  ollama_data:

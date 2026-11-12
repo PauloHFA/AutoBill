@@ -1,0 +1,72 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Data directories (persistent volumes)
+data/
+!data/.gitkeep
+
+# Database
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Test coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# pytest
+.pytest_cache/
+.hypothesis/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Docker
+.docker/
+
+# Alembic
+autobill/db/migrations/versions/
+
+# Temporary files
+*.tmp
+*.temp

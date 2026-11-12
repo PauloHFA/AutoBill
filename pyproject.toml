@@ -1,0 +1,122 @@
+[project]
+name = "autobill"
+version = "0.1.0"
+description = "Monitor inteligente de faturas e alertas de vencimento (Python, Telegram, Docker)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "AutoBill Team"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    # Core
+    "python-telegram-bot>=21.0",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "apscheduler>=3.10",
+    "structlog>=24.1",
+    "python-dotenv>=1.0",
+    "zoneinfo>=1.0; python_version < '3.9'",
+    "holidays>=0.45",
+    "tenacity>=8.2",
+    "httpx>=0.27",
+    # PDF & Images
+    "pypdf>=4.0",
+    "pdfplumber>=0.11",
+    "pypdfium2>=4.2",
+    "pillow>=10.0",
+    "zxing-cpp>=1.2",
+    # OCR
+    "pytesseract>=0.3",
+    # LLM
+    "google-genai>=1.0",
+    # Utils
+    "watchdog>=4.0",
+    "imap-tools>=0.45",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "hypothesis>=6.98",
+    "respx>=0.21",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
+]
+local-llm = [
+    "ollama>=0.3",
+]
+all = [
+    "autobill[dev,local-llm]",
+]
+
+[project.scripts]
+autobill = "autobill.main:main"
+autobill-bot = "autobill.bot.handlers:run_bot"
+autobill-migrate = "autobill.db.migrations:run_migrations"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = ["E", "F", "I", "UP", "W", "C4", "C90", "PTH", "T20", "TID", "TRY", "SIM", "RET", "ARG", "ERA", "PD", "PGH", "PL", "TRY", "NPY", "RSE", "RUF", "TCH", "INT", "PERF", "PIE", "TID", "LOG"]
+ignore = ["S101", "S311", "S603", "S607"]
+fixable = ["ALL"]
+unfixable = ["T20", "S101", "S311", "S603", "S607"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+strict_optional = true
+show_error_codes = true
+pretty = true
+exclude = ["site-packages"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["autobill"]
+omit = ["tests/*", "*/migrations/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["autobill*"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
