@@ -1,11 +1,13 @@
 """Command and message handlers for Telegram bot."""
 
+import asyncio
+import hashlib
 import logging
 from contextlib import suppress
 from datetime import datetime
-from typing import NoReturn
+from typing import Any, NoReturn
 
-from telegram import InlineKeyboardMarkup, Update
+from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -49,6 +51,7 @@ from autobill.bot.utils import (
     save_uploaded_file,
 )
 from autobill.config import settings
+from autobill.db.models import Bill, BillStatus
 from autobill.db.repository import BillRepository
 from autobill.extract.pipeline import ExtractionPipeline
 from autobill.rules.boleto import (
@@ -74,10 +77,51 @@ def _raise_invalid_input(message: str) -> NoReturn:
     raise InvalidInputError(message)
 
 
+def _parse_edited_value(field_name: str, new_value: str) -> str | int:
+    if field_name == "valor":
+        value = int(new_value)
+        if value < 0:
+            _raise_invalid_input("Valor deve ser positivo")
+        return value
+
+    if field_name == "vencimento":
+        datetime.strptime(new_value, "%d/%m/%Y")
+        return new_value
+
+    if field_name in ("linha_digitavel", "codigo_barras"):
+        digits = "".join(c for c in new_value if c.isdigit())
+        if field_name == "linha_digitavel" and len(digits) not in (
+            BOLETO_LENGTH,
+            ARRECADACAO_LENGTH,
+        ):
+            _raise_invalid_input("Linha digitável deve ter 47 ou 48 dígitos")
+        if field_name == "codigo_barras" and len(digits) != CODIGO_BARRAS_LENGTH:
+            _raise_invalid_input("Código de barras deve ter 44 dígitos")
+        return digits
+
+    return new_value
+
+
+def _get_message(update: Update) -> Message:
+    message = update.effective_message
+    if message is None:
+        _raise_invalid_input("Update does not contain a message")
+    return message
+
+
+def _get_message_text(update: Update) -> str:
+    text = _get_message(update).text
+    if text is None:
+        _raise_invalid_input("Message does not contain text")
+    return text
+
+
 async def start_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     user = update.effective_user
     if not user:
+        return
+    if update.message is None:
         return
 
     if not is_authorized_user(user.id):
@@ -103,6 +147,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     user_id = get_user_id(update)
     if not user_id or not is_authorized_user(user_id):
         return
+    if update.message is None:
+        return
 
     # Check for category argument
     args = context.args
@@ -121,6 +167,8 @@ async def bills_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user_id = get_user_id(update)
     if not user_id or not is_authorized_user(user_id):
         return
+    if update.message is None:
+        return
 
     # Parse arguments: filter and page
     args = context.args
@@ -136,7 +184,7 @@ async def bills_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 page = int(args[1])
 
     # Get bills from repository
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
         bills, total = await repo.list_bills(
             user_id=user_id,
@@ -147,7 +195,7 @@ async def bills_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         total_pages = (total + BILLS_PER_PAGE - 1) // BILLS_PER_PAGE
 
         text = format_bill_list(bills, page, total_pages, filter_name)
-        keyboard = InlineKeyboardMarkup.inline_keyboard(
+        keyboard = InlineKeyboardMarkup(
             [
                 *get_bills_filter_keyboard(filter_name).inline_keyboard,
                 *get_pagination_keyboard(page, total_pages, "bills").inline_keyboard,
@@ -168,8 +216,10 @@ async def pending_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -
     user_id = get_user_id(update)
     if not user_id or not is_authorized_user(user_id):
         return
+    if update.message is None:
+        return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
         bills, total = await repo.list_bills(
             user_id=user_id,
@@ -189,10 +239,10 @@ async def pending_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -
             return
 
         text = format_bill_list(bills, 1, total_pages, "pendentes")
-        keyboard = InlineKeyboardMarkup.inline_keyboard(
+        keyboard = InlineKeyboardMarkup(
             [
                 *get_pagination_keyboard(1, total_pages, "pending").inline_keyboard,
-                [{"text": "🔍 Revisar Primeiro", "callback_data": "review_next"}],
+                [InlineKeyboardButton("🔍 Revisar Primeiro", callback_data="review_next")],
             ]
         )
 
@@ -210,8 +260,10 @@ async def review_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) ->
     user_id = get_user_id(update)
     if not user_id or not is_authorized_user(user_id):
         return
+    if update.message is None:
+        return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
         # Get first pending bill
         bills, _ = await repo.list_bills(
@@ -235,9 +287,21 @@ async def review_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) ->
         await repo.close()
 
 
-async def show_bill_for_review(update: Update, bill, edit: bool = False) -> None:
+async def show_bill_for_review(
+    update: Update | CallbackQuery, bill: Bill, edit: bool = False
+) -> None:
     """Show a bill for review with inline keyboard."""
-    user_id = get_user_id(update)
+    user_id: int | None
+    callback_query: CallbackQuery | None
+    message: Message | None
+    if isinstance(update, CallbackQuery):
+        user_id = update.from_user.id
+        callback_query = update
+        message = None
+    else:
+        user_id = get_user_id(update)
+        callback_query = update.callback_query
+        message = update.message
     if not user_id:
         return
 
@@ -251,14 +315,16 @@ async def show_bill_for_review(update: Update, bill, edit: bool = False) -> None
     text = format_bill_details(bill)
     keyboard = get_review_keyboard(bill.id)
 
-    if edit and update.callback_query:
-        await update.callback_query.edit_message_text(
+    if edit and callback_query:
+        await callback_query.edit_message_text(
             text,
             parse_mode="HTML",
             reply_markup=keyboard,
         )
     else:
-        await update.message.reply_text(
+        if message is None:
+            return
+        await message.reply_text(
             text,
             parse_mode="HTML",
             reply_markup=keyboard,
@@ -270,8 +336,10 @@ async def alerts_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) ->
     user_id = get_user_id(update)
     if not user_id or not is_authorized_user(user_id):
         return
+    if update.message is None:
+        return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
         # Get recent alert history
         alerts = await repo.get_recent_alerts(user_id=user_id, limit=10)
@@ -281,7 +349,7 @@ async def alerts_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) ->
         else:
             lines = ["🔔 <b>Últimos Alertas</b>", ""]
             for alert in alerts:
-                bill = await repo.get_bill(alert.bill_id)
+                bill = await repo.get_bill(alert.bill_id, user_id=user_id)
                 if bill:
                     lines.append(
                         f"• {alert.sent_at.strftime('%d/%m %H:%M')} - "
@@ -305,13 +373,15 @@ async def config_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) ->
     user_id = get_user_id(update)
     if not user_id or not is_authorized_user(user_id):
         return
+    if update.message is None:
+        return
 
     config = {
         "alert_time": settings.alert_time,
-        "lead_days": ",".join(map(str, settings.alert_lead_days)),
-        "timezone": settings.timezone,
-        "extraction_mode": settings.extraction_mode,
-        "llm_model": settings.gemini_model,
+        "lead_days": ",".join(map(str, settings.lead_days)),
+        "timezone": settings.default_timezone,
+        "extraction_mode": settings.extractor,
+        "llm_model": settings.llm_vision_model,
         "cloud_consent": settings.cloud_extraction_consent,
     }
 
@@ -331,6 +401,8 @@ async def handle_document(  # noqa: PLR0911
     """Handle document (PDF) uploads."""
     user_id = get_user_id(update)
     if not user_id or not is_authorized_user(user_id):
+        return
+    if update.message is None:
         return
 
     document = update.message.document
@@ -382,13 +454,13 @@ async def handle_document(  # noqa: PLR0911
 
         # Process through extraction pipeline
         pipeline = ExtractionPipeline()
-        result = await pipeline.process_file(file_path)
+        result = await asyncio.to_thread(pipeline.extract, file_path)
 
         # Clean up ingress file
         with suppress(Exception):
             file_path.unlink()
 
-        if not result or not result.fields:
+        if not result.is_valid():
             await processing_msg.edit_text(
                 "❌ <b>Não foi possível extrair dados do boleto</b>\n\n"
                 "Tente enviar uma foto nítida ou PDF de melhor qualidade.",
@@ -397,12 +469,13 @@ async def handle_document(  # noqa: PLR0911
             return
 
         # Save bill to database
-        repo = BillRepository()
+        repo = await BillRepository.create_for_bot()
         try:
             bill = await repo.create_bill_from_extraction(
                 user_id=user_id,
                 extraction_result=result,
                 source_file=str(file_path),
+                source_hash=hashlib.sha256(file_bytes).hexdigest(),
             )
 
             # Show for review
@@ -426,6 +499,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """Handle photo uploads."""
     user_id = get_user_id(update)
     if not user_id or not is_authorized_user(user_id):
+        return
+    if update.message is None:
         return
 
     # Get highest resolution photo
@@ -460,13 +535,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         # Process through extraction pipeline
         pipeline = ExtractionPipeline()
-        result = await pipeline.process_file(file_path)
+        result = await asyncio.to_thread(pipeline.extract, file_path)
 
         # Clean up
         with suppress(Exception):
             file_path.unlink()
 
-        if not result or not result.fields:
+        if not result.is_valid():
             await processing_msg.edit_text(
                 "❌ <b>Não foi possível extrair dados da imagem</b>\n\n"
                 "Tente uma foto mais nítida, com boa iluminação e o boleto centralizado.",
@@ -475,12 +550,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return
 
         # Save bill
-        repo = BillRepository()
+        repo = await BillRepository.create_for_bot()
         try:
             bill = await repo.create_bill_from_extraction(
                 user_id=user_id,
                 extraction_result=result,
                 source_file=str(file_path),
+                source_hash=hashlib.sha256(file_bytes).hexdigest(),
             )
 
             await processing_msg.edit_text(
@@ -564,15 +640,20 @@ async def handle_callback_query(  # noqa: C901, PLR0912, PLR0915
 
 
 # Review handlers
-async def handle_review_approve(query, context, params):
+async def handle_review_approve(
+    query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Handle approve bill."""
     if not params:
         return
     bill_id = int(params[0])
+    user_id = get_user_id(query)
+    if user_id is None:
+        return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
-        bill = await repo.get_bill(bill_id)
+        bill = await repo.get_bill(bill_id, user_id=user_id)
         if not bill:
             await query.edit_message_text("❌ Boleto não encontrado", parse_mode="HTML")
             return
@@ -593,8 +674,8 @@ async def handle_review_approve(query, context, params):
             return
 
         # Approve
-        await repo.update_bill_status(bill_id, "approved")
-        bill.status = "approved"
+        await repo.update_bill_status(bill_id, "approved", user_id=user_id)
+        bill.status = BillStatus.PENDENTE
 
         await query.edit_message_text(
             f"✅ <b>Boleto aprovado!</b>\n\nAlertas agendados para {bill.vencimento}.",
@@ -603,7 +684,6 @@ async def handle_review_approve(query, context, params):
         )
 
         # Clear state
-        user_id = get_user_id(query)
         if user_id:
             state_manager.clear_state(user_id)
 
@@ -613,7 +693,9 @@ async def handle_review_approve(query, context, params):
         await repo.close()
 
 
-async def handle_review_reject(query, _context, params):
+async def handle_review_reject(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Handle reject bill - show confirmation."""
     if not params:
         return
@@ -626,15 +708,20 @@ async def handle_review_reject(query, _context, params):
     )
 
 
-async def handle_confirm_reject(query, context, params):
+async def handle_confirm_reject(
+    query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Confirm bill rejection."""
     if not params:
         return
     bill_id = int(params[0])
+    user_id = get_user_id(query)
+    if user_id is None:
+        return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
-        await repo.update_bill_status(bill_id, "rejected")
+        await repo.update_bill_status(bill_id, "rejected", user_id=user_id)
 
         await query.edit_message_text(
             "❌ <b>Boleto rejeitado e descartado.</b>",
@@ -642,7 +729,6 @@ async def handle_confirm_reject(query, context, params):
             reply_markup=get_back_keyboard("back:main"),
         )
 
-        user_id = get_user_id(query)
         if user_id:
             state_manager.clear_state(user_id)
 
@@ -651,39 +737,37 @@ async def handle_confirm_reject(query, context, params):
         await repo.close()
 
 
-async def handle_review_edit(query, _context, params):  # noqa: C901
+async def handle_review_edit(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Start edit flow for a bill."""
     if not params:
         return
     bill_id = int(params[0])
+    user_id = get_user_id(query)
+    if user_id is None:
+        return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
-        bill = await repo.get_bill(bill_id)
+        bill = await repo.get_bill(bill_id, user_id=user_id)
         if not bill:
             await query.edit_message_text("❌ Boleto não encontrado", parse_mode="HTML")
             return
 
         # Get editable fields
         fields = []
-        if bill.valor is not None:
+        if bill.valor_centavos is not None:
             fields.append("valor")
         if bill.vencimento:
             fields.append("vencimento")
         if bill.beneficiario:
             fields.append("beneficiario")
-        if bill.pagador:
-            fields.append("pagador")
         if bill.linha_digitavel:
             fields.append("linha_digitavel")
         if bill.codigo_barras:
             fields.append("codigo_barras")
-        if bill.nosso_numero:
-            fields.append("nosso_numero")
-        if bill.documento:
-            fields.append("documento")
 
-        user_id = get_user_id(query)
         if user_id:
             state_manager.set_state(
                 user_id,
@@ -700,7 +784,9 @@ async def handle_review_edit(query, _context, params):  # noqa: C901
         await repo.close()
 
 
-async def handle_edit_field(query, _context, params):
+async def handle_edit_field(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Handle field selection for editing."""
     if len(params) < MIN_CALLBACK_PARTS:
         return
@@ -720,11 +806,8 @@ async def handle_edit_field(query, _context, params):
         "valor": "Valor (em centavos, ex: 123456 = R$ 1.234,56)",
         "vencimento": "Vencimento (DD/MM/AAAA)",
         "beneficiario": "Beneficiário",
-        "pagador": "Pagador",
         "linha_digitavel": "Linha Digitável (47 ou 48 dígitos)",
         "codigo_barras": "Código de Barras (44 dígitos)",
-        "nosso_numero": "Nosso Número",
-        "documento": "Número do Documento",
     }
 
     await query.edit_message_text(
@@ -736,53 +819,66 @@ async def handle_edit_field(query, _context, params):
     )
 
 
-async def handle_edit_done(query, _context, params):
+async def handle_edit_done(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Finish editing and return to review."""
     if not params:
         return
     bill_id = int(params[0])
+    user_id = get_user_id(query)
+    if user_id is None:
+        return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
-        bill = await repo.get_bill(bill_id)
+        bill = await repo.get_bill(bill_id, user_id=user_id)
         if bill:
             await show_bill_for_review(query, bill, edit=True)
     finally:
         await repo.close()
 
-    user_id = get_user_id(query)
     if user_id:
         state_manager.clear_state(user_id)
 
 
-async def handle_edit_cancel(query, _context, params):
+async def handle_edit_cancel(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Cancel editing."""
     if not params:
         return
     bill_id = int(params[0])
+    user_id = get_user_id(query)
+    if user_id is None:
+        return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
-        bill = await repo.get_bill(bill_id)
+        bill = await repo.get_bill(bill_id, user_id=user_id)
         if bill:
             await show_bill_for_review(query, bill, edit=True)
     finally:
         await repo.close()
 
-    user_id = get_user_id(query)
     if user_id:
         state_manager.clear_state(user_id)
 
 
-async def handle_review_details(query, _context, params):
+async def handle_review_details(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Show full bill details."""
     if not params:
         return
     bill_id = int(params[0])
+    user_id = get_user_id(query)
+    if user_id is None:
+        return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
-        bill = await repo.get_bill(bill_id)
+        bill = await repo.get_bill(bill_id, user_id=user_id)
         if bill:
             text = format_bill_details(bill, show_confidence=True)
             await query.edit_message_text(
@@ -794,7 +890,9 @@ async def handle_review_details(query, _context, params):
         await repo.close()
 
 
-async def handle_review_skip(query, _context, params):
+async def handle_review_skip(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Skip current bill and show next."""
     if not params:
         return
@@ -802,13 +900,13 @@ async def handle_review_skip(query, _context, params):
     await handle_review_next(query, _context)
 
 
-async def handle_review_next(query, _context):
+async def handle_review_next(query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show next pending bill for review."""
     user_id = get_user_id(query)
     if not user_id:
         return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
         bills, _ = await repo.list_bills(
             user_id=user_id,
@@ -831,7 +929,9 @@ async def handle_review_next(query, _context):
         await repo.close()
 
 
-async def handle_review_cancel(query, _context, _params):
+async def handle_review_cancel(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, _params: list[str]
+) -> None:
     """Cancel review flow."""
     user_id = get_user_id(query)
     if user_id:
@@ -845,7 +945,9 @@ async def handle_review_cancel(query, _context, _params):
 
 
 # Filter and pagination handlers
-async def handle_filter(query, _context, params):
+async def handle_filter(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Handle filter change."""
     if not params:
         return
@@ -855,7 +957,7 @@ async def handle_filter(query, _context, params):
     if not user_id:
         return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
         bills, total = await repo.list_bills(
             user_id=user_id,
@@ -866,7 +968,7 @@ async def handle_filter(query, _context, params):
         total_pages = (total + BILLS_PER_PAGE - 1) // BILLS_PER_PAGE
 
         text = format_bill_list(bills, 1, total_pages, filter_name)
-        keyboard = InlineKeyboardMarkup.inline_keyboard(
+        keyboard = InlineKeyboardMarkup(
             [
                 *get_bills_filter_keyboard(filter_name).inline_keyboard,
                 *get_pagination_keyboard(1, total_pages, "bills").inline_keyboard,
@@ -882,7 +984,9 @@ async def handle_filter(query, _context, params):
         await repo.close()
 
 
-async def handle_bills_page(query, _context, params):
+async def handle_bills_page(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Handle bills pagination."""
     if not params:
         return
@@ -895,7 +999,7 @@ async def handle_bills_page(query, _context, params):
     if not user_id:
         return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
         bills, total = await repo.list_bills(
             user_id=user_id,
@@ -906,7 +1010,7 @@ async def handle_bills_page(query, _context, params):
         total_pages = (total + BILLS_PER_PAGE - 1) // BILLS_PER_PAGE
 
         text = format_bill_list(bills, page, total_pages, filter_name)
-        keyboard = InlineKeyboardMarkup.inline_keyboard(
+        keyboard = InlineKeyboardMarkup(
             [
                 *get_bills_filter_keyboard(filter_name).inline_keyboard,
                 *get_pagination_keyboard(page, total_pages, "bills").inline_keyboard,
@@ -922,7 +1026,9 @@ async def handle_bills_page(query, _context, params):
         await repo.close()
 
 
-async def handle_pending_page(query, _context, params):
+async def handle_pending_page(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Handle pending bills pagination."""
     if not params:
         return
@@ -932,7 +1038,7 @@ async def handle_pending_page(query, _context, params):
     if not user_id:
         return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
         bills, total = await repo.list_bills(
             user_id=user_id,
@@ -955,7 +1061,9 @@ async def handle_pending_page(query, _context, params):
 
 
 # Alert handlers
-async def handle_alert_config(query, _context, params):
+async def handle_alert_config(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Handle alert configuration."""
     if not params:
         return
@@ -1000,16 +1108,21 @@ async def handle_alert_config(query, _context, params):
         )
 
 
-async def handle_snooze(query, _context, params):
+async def handle_snooze(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Handle snooze bill."""
     if len(params) < MIN_CALLBACK_PARTS:
         return
     bill_id = int(params[0])
     days = int(params[1])
+    user_id = get_user_id(query)
+    if user_id is None:
+        return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
-        await repo.snooze_bill(bill_id, days)
+        await repo.snooze_bill(bill_id, days, user_id=user_id)
         await query.edit_message_text(
             f"😴 <b>Boleto adiado por {days} dias.</b>\n\nNovo lembrete agendado.",
             parse_mode="HTML",
@@ -1019,7 +1132,9 @@ async def handle_snooze(query, _context, params):
         await repo.close()
 
 
-async def handle_snooze_custom(query, _context, params):
+async def handle_snooze_custom(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Handle custom snooze."""
     if not params:
         return
@@ -1040,15 +1155,20 @@ async def handle_snooze_custom(query, _context, params):
     )
 
 
-async def handle_snooze_cancel(query, _context, params):
+async def handle_snooze_cancel(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Cancel snooze."""
     if not params:
         return
     bill_id = int(params[0])
+    user_id = get_user_id(query)
+    if user_id is None:
+        return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
-        bill = await repo.get_bill(bill_id)
+        bill = await repo.get_bill(bill_id, user_id=user_id)
         if bill:
             await show_bill_for_review(query, bill, edit=True)
     finally:
@@ -1056,7 +1176,9 @@ async def handle_snooze_cancel(query, _context, params):
 
 
 # Config handlers
-async def handle_config(query, _context, params):
+async def handle_config(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Handle configuration changes."""
     if not params:
         return
@@ -1124,7 +1246,9 @@ async def handle_config(query, _context, params):
         )
 
 
-async def handle_back(query, _context, params):
+async def handle_back(
+    query: CallbackQuery, _context: ContextTypes.DEFAULT_TYPE, params: list[str]
+) -> None:
     """Handle back navigation."""
     if not params:
         return
@@ -1134,13 +1258,16 @@ async def handle_back(query, _context, params):
         await query.edit_message_text(
             "🏠 <b>Menu Principal</b>\n\nUse os botões abaixo ou comandos:",
             parse_mode="HTML",
-            reply_markup=get_main_menu_keyboard(),
+            reply_markup=InlineKeyboardMarkup([]),
         )
     elif target == "review_edit" and len(params) > 1:
         bill_id = int(params[1])
-        repo = BillRepository()
+        user_id = get_user_id(query)
+        if user_id is None:
+            return
+        repo = await BillRepository.create_for_bot()
         try:
-            bill = await repo.get_bill(bill_id)
+            bill = await repo.get_bill(bill_id, user_id=user_id)
             if bill:
                 await show_bill_for_review(query, bill, edit=True)
         finally:
@@ -1177,47 +1304,28 @@ async def handle_edit_value(
     """Handle field value during editing."""
     bill_id = user_state.bill_id
     field_name = user_state.field_name
-    new_value = update.message.text.strip()
+    if update.message is None or update.message.text is None:
+        return
+    new_value = _get_message_text(update).strip()
 
     if not bill_id or not field_name:
         await update.message.reply_text("❌ Estado inválido. Use /review para recomeçar.")
         state_manager.clear_state(user_id)
         return
 
-    repo = BillRepository()
+    repo = await BillRepository.create_for_bot()
     try:
-        bill = await repo.get_bill(bill_id)
+        bill = await repo.get_bill(bill_id, user_id=user_id)
         if not bill:
             await update.message.reply_text("❌ Boleto não encontrado.")
             state_manager.clear_state(user_id)
             return
 
-        # Validate and convert value based on field
         try:
-            if field_name == "valor":
-                value = int(new_value)
-                if value < 0:
-                    _raise_invalid_input("Valor deve ser positivo")
-            elif field_name == "vencimento":
-                # Parse DD/MM/YYYY
-                datetime.strptime(new_value, "%d/%m/%Y")
-                value = new_value
-            elif field_name in ("linha_digitavel", "codigo_barras"):
-                # Validate digits only
-                digits = "".join(c for c in new_value if c.isdigit())
-                if field_name == "linha_digitavel" and len(digits) not in (
-                    BOLETO_LENGTH,
-                    ARRECADACAO_LENGTH,
-                ):
-                    _raise_invalid_input("Linha digitável deve ter 47 ou 48 dígitos")
-                if field_name == "codigo_barras" and len(digits) != CODIGO_BARRAS_LENGTH:
-                    _raise_invalid_input("Código de barras deve ter 44 dígitos")
-                value = digits
-            else:
-                value = new_value
+            value = _parse_edited_value(field_name, new_value)
 
             # Update bill
-            await repo.update_bill_field(bill_id, field_name, value)
+            await repo.update_bill_field(bill_id, field_name, value, user_id=user_id)
 
             await update.message.reply_text(
                 f"✅ <b>Campo {field_name} atualizado!</b>",
@@ -1249,7 +1357,9 @@ async def handle_config_value(
 ) -> None:
     """Handle config value input."""
     field_name = user_state.temp_data.get("field_name")
-    new_value = update.message.text.strip()
+    if update.message is None or update.message.text is None:
+        return
+    new_value = _get_message_text(update).strip()
 
     # In a real implementation, this would update the config
     # For now, just acknowledge
@@ -1269,7 +1379,9 @@ async def handle_alert_time_value(
     user_id: int,
 ) -> None:
     """Handle alert time input."""
-    new_value = update.message.text.strip()
+    if update.message is None or update.message.text is None:
+        return
+    new_value = _get_message_text(update).strip()
 
     try:
         datetime.strptime(new_value, "%H:%M")
@@ -1295,16 +1407,18 @@ async def handle_snooze_days_value(
 ) -> None:
     """Handle snooze days input."""
     bill_id = user_state.bill_id
-    new_value = update.message.text.strip()
+    if update.message is None or update.message.text is None:
+        return
+    new_value = _get_message_text(update).strip()
 
     try:
         days = int(new_value)
         if days < 1 or days > MAX_SNOOZE_DAYS:
             _raise_invalid_input("Dias deve ser entre 1 e 365")
 
-        repo = BillRepository()
+        repo = await BillRepository.create_for_bot()
         try:
-            await repo.snooze_bill(bill_id, days)
+            await repo.snooze_bill(bill_id, days, user_id=user_id)
             await update.message.reply_text(
                 f"😴 <b>Boleto adiado por {days} dias.</b>",
                 parse_mode="HTML",
@@ -1320,7 +1434,7 @@ async def handle_snooze_days_value(
     state_manager.clear_state(user_id)
 
 
-def register_handlers(application) -> None:
+def register_handlers(application: Any) -> None:
     """Register all handlers with the application."""
     # Commands
     application.add_handler(CommandHandler("start", start_command))

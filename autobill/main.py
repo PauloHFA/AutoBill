@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import signal
 import sys
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from autobill.config import settings
@@ -14,7 +15,7 @@ logger = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan():
+async def lifespan() -> AsyncIterator[None]:
     """Application lifespan manager."""
     # Startup
     setup_logging(json_logs=settings.log_json, log_level=settings.log_level)

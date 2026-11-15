@@ -4,6 +4,8 @@ import asyncio
 import contextlib
 import sys
 
+from sqlalchemy import text
+
 from autobill.config import settings
 from autobill.db.repository import db
 from autobill.logging_config import get_logger
@@ -16,7 +18,7 @@ async def check_database() -> bool:
     try:
         await db.connect()
         async with db.session() as session:
-            await session.execute("SELECT 1")
+            await session.execute(text("SELECT 1"))
     except Exception:
         logger.exception("database_health_check_failed")
         return False

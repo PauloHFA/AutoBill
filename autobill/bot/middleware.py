@@ -134,7 +134,7 @@ async def logging_middleware(
             log_data["command"] = (
                 update.message.text.split()[0] if update.message.text.startswith("/") else None
             )
-    elif update.callback_query:
+    elif update.callback_query and update.callback_query.data:
         log_data["callback_data"] = update.callback_query.data[:50]
 
     try:
@@ -169,7 +169,7 @@ async def state_cleanup_middleware(
     return await next_handler(update, context)
 
 
-def apply_middlewares(application) -> None:
+def apply_middlewares(application: Any) -> None:
     """Apply all middlewares to the application."""
     # Order matters: auth -> rate_limit -> logging -> state_cleanup
     application.add_handler(

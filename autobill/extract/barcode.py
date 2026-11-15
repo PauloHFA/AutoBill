@@ -1,19 +1,23 @@
 """Leitura de código de barras de PDFs e imagens usando zxing-cpp."""
 
+from importlib import import_module
 from pathlib import Path
+from typing import Any
 
+from PIL import Image
+
+zxingcpp: Any
 try:
-    import zxingcpp
+    zxingcpp = import_module("zxingcpp")
 
     ZXING_AVAILABLE = True
 except ImportError:
     ZXING_AVAILABLE = False
     zxingcpp = None
 
-from PIL import Image
-
+convert_from_path: Any
 try:
-    from pdf2image import convert_from_path
+    convert_from_path = import_module("pdf2image").convert_from_path
 
     PDF2IMAGE_AVAILABLE = True
 except ImportError:

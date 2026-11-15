@@ -1,11 +1,15 @@
 """Extração de texto usando OCR local (Tesseract)."""
 
 import io
+from importlib import import_module
 from pathlib import Path
+from typing import Any, cast
 
+Image: Any
+pytesseract: Any
 try:
-    import pytesseract
-    from PIL import Image
+    pytesseract = import_module("pytesseract")
+    Image = import_module("PIL.Image")
 
     TESSERACT_AVAILABLE = True
 except ImportError:
@@ -13,8 +17,9 @@ except ImportError:
     pytesseract = None
     Image = None
 
+convert_from_path: Any
 try:
-    from pdf2image import convert_from_path
+    convert_from_path = import_module("pdf2image").convert_from_path
 
     PDF2IMAGE_AVAILABLE = True
 except ImportError:
@@ -48,7 +53,7 @@ def extract_text_with_ocr(image_path: str | Path, lang: str = "por") -> str:
             # Configurações do Tesseract para melhor precisão
             config = "--psm 6 --oem 3"  # Assume bloco de texto uniforme, LSTM engine
 
-            text = pytesseract.image_to_string(img_rgb, lang=lang, config=config)
+            text = cast("str", pytesseract.image_to_string(img_rgb, lang=lang, config=config))
             return text.strip()
 
     except Exception:
@@ -108,12 +113,12 @@ def extract_text_with_ocr_from_bytes(image_bytes: bytes, lang: str = "por") -> s
         return ""
 
     try:
-        img_bytes = Image.open(io.BytesIO(image_bytes))
+        img_bytes: Any = Image.open(io.BytesIO(image_bytes))
         if img_bytes.mode not in ("RGB", "L"):
             img_bytes = img_bytes.convert("RGB")
 
         config = "--psm 6 --oem 3"
-        text = pytesseract.image_to_string(img_bytes, lang=lang, config=config)
+        text = cast("str", pytesseract.image_to_string(img_bytes, lang=lang, config=config))
         return text.strip()
 
     except Exception:

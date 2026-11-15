@@ -96,4 +96,4 @@ class Settings(BaseSettings):
 
 
 # Global settings instance
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]  # BaseSettings loads required fields from the environment.

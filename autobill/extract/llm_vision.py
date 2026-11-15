@@ -1,13 +1,18 @@
 """Extração de texto usando LLM Vision (Gemini Flash)."""
 
 import json
+import mimetypes
 import os
 from dataclasses import dataclass
+from importlib import import_module
+from pathlib import Path
 from typing import Any
 
+genai: Any
+types: Any
 try:
-    from google import genai
-    from google.genai import types
+    genai = import_module("google.genai")
+    types = import_module("google.genai.types")
 
     GENAI_AVAILABLE = True
 except ImportError:
@@ -150,6 +155,23 @@ def extract_boleto_with_llm_vision(
         return None
     except Exception:
         return None
+
+
+def extract_with_llm_vision(
+    file_path: str | Path,
+    model: str = "gemini-2.0-flash-exp",
+    page_num: int = 0,
+) -> LLMVisionResult | None:
+    """Extract boleto fields from a file using the configured vision model."""
+    del page_num
+    path = Path(file_path)
+    try:
+        image_bytes = path.read_bytes()
+    except OSError:
+        return None
+
+    mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return extract_boleto_with_llm_vision(image_bytes, mime_type=mime_type, model=model)
 
 
 def is_genai_available() -> bool:
