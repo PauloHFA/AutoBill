@@ -1,71 +1,80 @@
 """Command and message handlers for Telegram bot."""
 
-import io
 import logging
+from contextlib import suppress
 from datetime import datetime
-from typing import Optional
+from typing import NoReturn
 
-from telegram import Update, InlineKeyboardMarkup
+from telegram import InlineKeyboardMarkup, Update
 from telegram.ext import (
-    ContextTypes,
-    CommandHandler,
-    MessageHandler,
     CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
     filters,
-    ConversationHandler,
 )
 
-from autobill.bot.keyboards import (
-    get_main_menu_keyboard,
-    get_review_keyboard,
-    get_edit_field_keyboard,
-    get_confirm_keyboard,
-    get_alert_config_keyboard,
-    get_snooze_keyboard,
-    get_bills_filter_keyboard,
-    get_pagination_keyboard,
-    get_config_keyboard,
-    get_back_keyboard,
-)
 from autobill.bot.formatters import (
-    format_bill_summary,
     format_bill_details,
     format_bill_list,
-    format_alert_message,
-    format_help_message,
+    format_bill_summary,
     format_config_status,
-    format_welcome_message,
     format_error_message,
+    format_help_message,
+    format_welcome_message,
 )
+from autobill.bot.keyboards import (
+    get_alert_config_keyboard,
+    get_back_keyboard,
+    get_bills_filter_keyboard,
+    get_config_keyboard,
+    get_confirm_keyboard,
+    get_edit_field_keyboard,
+    get_main_menu_keyboard,
+    get_pagination_keyboard,
+    get_review_keyboard,
+)
+from autobill.bot.middleware import apply_middlewares
 from autobill.bot.state import (
-    StateManager,
     UserState,
     UserStateData,
     state_manager,
 )
 from autobill.bot.utils import (
-    get_user_id,
-    get_chat_id,
-    is_authorized_user,
     download_file,
-    save_uploaded_file,
+    get_user_id,
+    is_authorized_user,
     is_pdf_file,
-    is_image_file,
     parse_callback_data,
-    build_callback_data,
+    save_uploaded_file,
 )
 from autobill.config import settings
 from autobill.db.repository import BillRepository
-from autobill.extract.pipeline import ExtractionPipeline, ExtractionResult
-from autobill.rules.boleto import validar_linha_digitavel, parse_linha_digitavel
+from autobill.extract.pipeline import ExtractionPipeline
+from autobill.rules.boleto import (
+    ARRECADACAO_LENGTH,
+    BOLETO_LENGTH,
+    CODIGO_BARRAS_LENGTH,
+    validar_linha_digitavel,
+)
 
 logger = logging.getLogger(__name__)
 
 # Pagination settings
 BILLS_PER_PAGE = 10
+MIN_CALLBACK_PARTS = 2
+MAX_SNOOZE_DAYS = 365
 
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+class InvalidInputError(ValueError):
+    """Invalid value supplied by a bot user."""
+
+
+def _raise_invalid_input(message: str) -> NoReturn:
+    raise InvalidInputError(message)
+
+
+async def start_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     user = update.effective_user
     if not user:
@@ -138,10 +147,12 @@ async def bills_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         total_pages = (total + BILLS_PER_PAGE - 1) // BILLS_PER_PAGE
 
         text = format_bill_list(bills, page, total_pages, filter_name)
-        keyboard = InlineKeyboardMarkup.inline_keyboard([
-            *get_bills_filter_keyboard(filter_name).inline_keyboard,
-            *get_pagination_keyboard(page, total_pages, "bills").inline_keyboard,
-        ])
+        keyboard = InlineKeyboardMarkup.inline_keyboard(
+            [
+                *get_bills_filter_keyboard(filter_name).inline_keyboard,
+                *get_pagination_keyboard(page, total_pages, "bills").inline_keyboard,
+            ]
+        )
 
         await update.message.reply_text(
             text,
@@ -152,7 +163,7 @@ async def bills_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await repo.close()
 
 
-async def pending_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def pending_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /pending command - show bills awaiting review."""
     user_id = get_user_id(update)
     if not user_id or not is_authorized_user(user_id):
@@ -178,10 +189,12 @@ async def pending_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         text = format_bill_list(bills, 1, total_pages, "pendentes")
-        keyboard = InlineKeyboardMarkup.inline_keyboard([
-            *get_pagination_keyboard(1, total_pages, "pending").inline_keyboard,
-            [{"text": "🔍 Revisar Primeiro", "callback_data": "review_next"}],
-        ])
+        keyboard = InlineKeyboardMarkup.inline_keyboard(
+            [
+                *get_pagination_keyboard(1, total_pages, "pending").inline_keyboard,
+                [{"text": "🔍 Revisar Primeiro", "callback_data": "review_next"}],
+            ]
+        )
 
         await update.message.reply_text(
             text,
@@ -192,7 +205,7 @@ async def pending_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await repo.close()
 
 
-async def review_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def review_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /review command - start review flow for next pending bill."""
     user_id = get_user_id(update)
     if not user_id or not is_authorized_user(user_id):
@@ -252,7 +265,7 @@ async def show_bill_for_review(update: Update, bill, edit: bool = False) -> None
         )
 
 
-async def alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def alerts_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /alerts command - manage alerts."""
     user_id = get_user_id(update)
     if not user_id or not is_authorized_user(user_id):
@@ -264,10 +277,7 @@ async def alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         alerts = await repo.get_recent_alerts(user_id=user_id, limit=10)
 
         if not alerts:
-            text = (
-                "🔔 <b>Histórico de Alertas</b>\n\n"
-                "Nenhum alerta enviado recentemente."
-            )
+            text = "🔔 <b>Histórico de Alertas</b>\n\nNenhum alerta enviado recentemente."
         else:
             lines = ["🔔 <b>Últimos Alertas</b>", ""]
             for alert in alerts:
@@ -290,7 +300,7 @@ async def alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await repo.close()
 
 
-async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def config_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /config command - show configuration."""
     user_id = get_user_id(update)
     if not user_id or not is_authorized_user(user_id):
@@ -315,7 +325,9 @@ async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_document(  # noqa: PLR0911
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Handle document (PDF) uploads."""
     user_id = get_user_id(update)
     if not user_id or not is_authorized_user(user_id):
@@ -328,8 +340,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Check if PDF
     if not is_pdf_file(document.file_name or ""):
         await update.message.reply_text(
-            "📄 <b>Arquivo não suportado</b>\n\n"
-            "Por favor, envie um arquivo PDF.",
+            "📄 <b>Arquivo não suportado</b>\n\nPor favor, envie um arquivo PDF.",
             parse_mode="HTML",
         )
         return
@@ -337,22 +348,20 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Check file size
     if document.file_size and document.file_size > 20 * 1024 * 1024:  # 20MB
         await update.message.reply_text(
-            "📄 <b>Arquivo muito grande</b>\n\n"
-            "Tamanho máximo: 20 MB",
+            "📄 <b>Arquivo muito grande</b>\n\nTamanho máximo: 20 MB",
             parse_mode="HTML",
         )
         return
 
     # Send processing message
     processing_msg = await update.message.reply_text(
-        "🔄 <b>Processando boleto...</b>\n\n"
-        "Extraindo dados, validando...",
+        "🔄 <b>Processando boleto...</b>\n\nExtraindo dados, validando...",
         parse_mode="HTML",
     )
 
     try:
         # Download file
-        file_bytes = await download_file(update, context, document.file_id)
+        file_bytes = await download_file(context, document.file_id)
         if not file_bytes:
             await processing_msg.edit_text(
                 "❌ <b>Erro ao baixar arquivo</b>",
@@ -361,7 +370,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         # Save to ingress
-        file_path = await save_uploaded_file(file_bytes, document.file_name or "boleto.pdf", user_id)
+        file_path = await save_uploaded_file(
+            file_bytes, document.file_name or "boleto.pdf", user_id
+        )
         if not file_path:
             await processing_msg.edit_text(
                 "❌ <b>Erro ao salvar arquivo</b>",
@@ -374,10 +385,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         result = await pipeline.process_file(file_path)
 
         # Clean up ingress file
-        try:
+        with suppress(Exception):
             file_path.unlink()
-        except Exception:
-            pass
 
         if not result or not result.fields:
             await processing_msg.edit_text(
@@ -398,8 +407,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
             # Show for review
             await processing_msg.edit_text(
-                "✅ <b>Boleto processado!</b>\n\n"
-                "Revise os dados abaixo:",
+                "✅ <b>Boleto processado!</b>\n\nRevise os dados abaixo:",
                 parse_mode="HTML",
             )
             await show_bill_for_review(update, bill)
@@ -427,14 +435,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     # Send processing message
     processing_msg = await update.message.reply_text(
-        "🔄 <b>Processando imagem...</b>\n\n"
-        "Executando OCR e extração...",
+        "🔄 <b>Processando imagem...</b>\n\nExecutando OCR e extração...",
         parse_mode="HTML",
     )
 
     try:
         # Download file
-        file_bytes = await download_file(update, context, photo.file_id)
+        file_bytes = await download_file(context, photo.file_id)
         if not file_bytes:
             await processing_msg.edit_text(
                 "❌ <b>Erro ao baixar imagem</b>",
@@ -456,10 +463,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         result = await pipeline.process_file(file_path)
 
         # Clean up
-        try:
+        with suppress(Exception):
             file_path.unlink()
-        except Exception:
-            pass
 
         if not result or not result.fields:
             await processing_msg.edit_text(
@@ -479,8 +484,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
 
             await processing_msg.edit_text(
-                "✅ <b>Boleto processado!</b>\n\n"
-                "Revise os dados abaixo:",
+                "✅ <b>Boleto processado!</b>\n\nRevise os dados abaixo:",
                 parse_mode="HTML",
             )
             await show_bill_for_review(update, bill)
@@ -495,7 +499,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
 
 
-async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_callback_query(  # noqa: C901, PLR0912, PLR0915
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Handle all callback queries."""
     query = update.callback_query
     if not query or not query.data:
@@ -578,8 +584,9 @@ async def handle_review_approve(query, context, params):
 
         if errors:
             await query.edit_message_text(
-                f"⚠️ <b>Erros de validação:</b>\n" + "\n".join(f"• {e}" for e in errors) +
-                "\n\nUse ✏️ Editar para corrigir ou ❌ Rejeitar para descartar.",
+                "⚠️ <b>Erros de validação:</b>\n"
+                + "\n".join(f"• {e}" for e in errors)
+                + "\n\nUse ✏️ Editar para corrigir ou ❌ Rejeitar para descartar.",
                 parse_mode="HTML",
                 reply_markup=get_review_keyboard(bill_id),
             )
@@ -590,8 +597,7 @@ async def handle_review_approve(query, context, params):
         bill.status = "approved"
 
         await query.edit_message_text(
-            f"✅ <b>Boleto aprovado!</b>\n\n"
-            f"Alertas agendados para {bill.vencimento}.",
+            f"✅ <b>Boleto aprovado!</b>\n\nAlertas agendados para {bill.vencimento}.",
             parse_mode="HTML",
             reply_markup=get_back_keyboard("back:main"),
         )
@@ -607,15 +613,14 @@ async def handle_review_approve(query, context, params):
         await repo.close()
 
 
-async def handle_review_reject(query, context, params):
+async def handle_review_reject(query, _context, params):
     """Handle reject bill - show confirmation."""
     if not params:
         return
     bill_id = int(params[0])
 
     await query.edit_message_text(
-        "❌ <b>Confirmar rejeição?</b>\n\n"
-        "O boleto será descartado permanentemente.",
+        "❌ <b>Confirmar rejeição?</b>\n\nO boleto será descartado permanentemente.",
         parse_mode="HTML",
         reply_markup=get_confirm_keyboard("reject", bill_id),
     )
@@ -646,7 +651,7 @@ async def handle_confirm_reject(query, context, params):
         await repo.close()
 
 
-async def handle_review_edit(query, context, params):
+async def handle_review_edit(query, _context, params):  # noqa: C901
     """Start edit flow for a bill."""
     if not params:
         return
@@ -687,8 +692,7 @@ async def handle_review_edit(query, context, params):
             )
 
         await query.edit_message_text(
-            "✏️ <b>Editar Boleto</b>\n\n"
-            "Selecione o campo para editar:",
+            "✏️ <b>Editar Boleto</b>\n\nSelecione o campo para editar:",
             parse_mode="HTML",
             reply_markup=get_edit_field_keyboard(bill_id, fields),
         )
@@ -696,9 +700,9 @@ async def handle_review_edit(query, context, params):
         await repo.close()
 
 
-async def handle_edit_field(query, context, params):
+async def handle_edit_field(query, _context, params):
     """Handle field selection for editing."""
-    if len(params) < 2:
+    if len(params) < MIN_CALLBACK_PARTS:
         return
     bill_id = int(params[0])
     field_name = params[1]
@@ -732,7 +736,7 @@ async def handle_edit_field(query, context, params):
     )
 
 
-async def handle_edit_done(query, context, params):
+async def handle_edit_done(query, _context, params):
     """Finish editing and return to review."""
     if not params:
         return
@@ -751,7 +755,7 @@ async def handle_edit_done(query, context, params):
         state_manager.clear_state(user_id)
 
 
-async def handle_edit_cancel(query, context, params):
+async def handle_edit_cancel(query, _context, params):
     """Cancel editing."""
     if not params:
         return
@@ -770,7 +774,7 @@ async def handle_edit_cancel(query, context, params):
         state_manager.clear_state(user_id)
 
 
-async def handle_review_details(query, context, params):
+async def handle_review_details(query, _context, params):
     """Show full bill details."""
     if not params:
         return
@@ -790,17 +794,15 @@ async def handle_review_details(query, context, params):
         await repo.close()
 
 
-async def handle_review_skip(query, context, params):
+async def handle_review_skip(query, _context, params):
     """Skip current bill and show next."""
     if not params:
         return
-    bill_id = int(params[0])
-
     # Just show next without changing status
-    await handle_review_next(query, context)
+    await handle_review_next(query, _context)
 
 
-async def handle_review_next(query, context):
+async def handle_review_next(query, _context):
     """Show next pending bill for review."""
     user_id = get_user_id(query)
     if not user_id:
@@ -829,7 +831,7 @@ async def handle_review_next(query, context):
         await repo.close()
 
 
-async def handle_review_cancel(query, context, params):
+async def handle_review_cancel(query, _context, _params):
     """Cancel review flow."""
     user_id = get_user_id(query)
     if user_id:
@@ -843,7 +845,7 @@ async def handle_review_cancel(query, context, params):
 
 
 # Filter and pagination handlers
-async def handle_filter(query, context, params):
+async def handle_filter(query, _context, params):
     """Handle filter change."""
     if not params:
         return
@@ -864,10 +866,12 @@ async def handle_filter(query, context, params):
         total_pages = (total + BILLS_PER_PAGE - 1) // BILLS_PER_PAGE
 
         text = format_bill_list(bills, 1, total_pages, filter_name)
-        keyboard = InlineKeyboardMarkup.inline_keyboard([
-            *get_bills_filter_keyboard(filter_name).inline_keyboard,
-            *get_pagination_keyboard(1, total_pages, "bills").inline_keyboard,
-        ])
+        keyboard = InlineKeyboardMarkup.inline_keyboard(
+            [
+                *get_bills_filter_keyboard(filter_name).inline_keyboard,
+                *get_pagination_keyboard(1, total_pages, "bills").inline_keyboard,
+            ]
+        )
 
         await query.edit_message_text(
             text,
@@ -878,7 +882,7 @@ async def handle_filter(query, context, params):
         await repo.close()
 
 
-async def handle_bills_page(query, context, params):
+async def handle_bills_page(query, _context, params):
     """Handle bills pagination."""
     if not params:
         return
@@ -902,10 +906,12 @@ async def handle_bills_page(query, context, params):
         total_pages = (total + BILLS_PER_PAGE - 1) // BILLS_PER_PAGE
 
         text = format_bill_list(bills, page, total_pages, filter_name)
-        keyboard = InlineKeyboardMarkup.inline_keyboard([
-            *get_bills_filter_keyboard(filter_name).inline_keyboard,
-            *get_pagination_keyboard(page, total_pages, "bills").inline_keyboard,
-        ])
+        keyboard = InlineKeyboardMarkup.inline_keyboard(
+            [
+                *get_bills_filter_keyboard(filter_name).inline_keyboard,
+                *get_pagination_keyboard(page, total_pages, "bills").inline_keyboard,
+            ]
+        )
 
         await query.edit_message_text(
             text,
@@ -916,7 +922,7 @@ async def handle_bills_page(query, context, params):
         await repo.close()
 
 
-async def handle_pending_page(query, context, params):
+async def handle_pending_page(query, _context, params):
     """Handle pending bills pagination."""
     if not params:
         return
@@ -949,7 +955,7 @@ async def handle_pending_page(query, context, params):
 
 
 # Alert handlers
-async def handle_alert_config(query, context, params):
+async def handle_alert_config(query, _context, params):
     """Handle alert configuration."""
     if not params:
         return
@@ -966,8 +972,7 @@ async def handle_alert_config(query, context, params):
         if user_id:
             state_manager.set_state(user_id, UserState.AWAITING_ALERT_TIME)
         await query.edit_message_text(
-            "🕐 <b>Novo horário de alertas</b>\n\n"
-            "Envie no formato HH:MM (ex: 07:30)",
+            "🕐 <b>Novo horário de alertas</b>\n\nEnvie no formato HH:MM (ex: 07:30)",
             parse_mode="HTML",
             reply_markup=get_back_keyboard("alert_config:done"),
         )
@@ -976,8 +981,7 @@ async def handle_alert_config(query, context, params):
         if user_id:
             state_manager.set_state(user_id, UserState.AWAITING_ALERT_TIME)  # Reuse
         await query.edit_message_text(
-            "📅 <b>Dias de antecedência</b>\n\n"
-            "Envie números separados por vírgula (ex: 3,1,0)",
+            "📅 <b>Dias de antecedência</b>\n\nEnvie números separados por vírgula (ex: 3,1,0)",
             parse_mode="HTML",
             reply_markup=get_back_keyboard("alert_config:done"),
         )
@@ -996,9 +1000,9 @@ async def handle_alert_config(query, context, params):
         )
 
 
-async def handle_snooze(query, context, params):
+async def handle_snooze(query, _context, params):
     """Handle snooze bill."""
-    if len(params) < 2:
+    if len(params) < MIN_CALLBACK_PARTS:
         return
     bill_id = int(params[0])
     days = int(params[1])
@@ -1006,11 +1010,8 @@ async def handle_snooze(query, context, params):
     repo = BillRepository()
     try:
         await repo.snooze_bill(bill_id, days)
-        bill = await repo.get_bill(bill_id)
-
         await query.edit_message_text(
-            f"😴 <b>Boleto adiado por {days} dias.</b>\n\n"
-            f"Novo lembrete agendado.",
+            f"😴 <b>Boleto adiado por {days} dias.</b>\n\nNovo lembrete agendado.",
             parse_mode="HTML",
             reply_markup=get_back_keyboard("back:main"),
         )
@@ -1018,7 +1019,7 @@ async def handle_snooze(query, context, params):
         await repo.close()
 
 
-async def handle_snooze_custom(query, context, params):
+async def handle_snooze_custom(query, _context, params):
     """Handle custom snooze."""
     if not params:
         return
@@ -1033,14 +1034,13 @@ async def handle_snooze_custom(query, context, params):
         )
 
     await query.edit_message_text(
-        "📅 <b>Adiar personalizado</b>\n\n"
-        "Envie o número de dias (ex: 5)",
+        "📅 <b>Adiar personalizado</b>\n\nEnvie o número de dias (ex: 5)",
         parse_mode="HTML",
         reply_markup=get_back_keyboard(f"snooze_cancel:{bill_id}"),
     )
 
 
-async def handle_snooze_cancel(query, context, params):
+async def handle_snooze_cancel(query, _context, params):
     """Cancel snooze."""
     if not params:
         return
@@ -1056,7 +1056,7 @@ async def handle_snooze_cancel(query, context, params):
 
 
 # Config handlers
-async def handle_config(query, context, params):
+async def handle_config(query, _context, params):
     """Handle configuration changes."""
     if not params:
         return
@@ -1064,28 +1064,29 @@ async def handle_config(query, context, params):
 
     if action == "done":
         await query.edit_message_text(
-            "✅ <b>Configurações salvas.</b>\n\n"
-            "⚠️ Algumas mudanças exigem reinicialização do bot.",
+            "✅ <b>Configurações salvas.</b>\n\n⚠️ Algumas mudanças exigem reinicialização do bot.",
             parse_mode="HTML",
             reply_markup=get_back_keyboard("back:main"),
         )
     elif action == "alert_time":
         user_id = get_user_id(query)
         if user_id:
-            state_manager.set_state(user_id, UserState.AWAITING_CONFIG_VALUE, field_name="alert_time")
+            state_manager.set_state(
+                user_id, UserState.AWAITING_CONFIG_VALUE, field_name="alert_time"
+            )
         await query.edit_message_text(
-            "🕐 <b>Horário dos alertas</b>\n\n"
-            "Envie no formato HH:MM (ex: 07:30)",
+            "🕐 <b>Horário dos alertas</b>\n\nEnvie no formato HH:MM (ex: 07:30)",
             parse_mode="HTML",
             reply_markup=get_back_keyboard("config:done"),
         )
     elif action == "lead_days":
         user_id = get_user_id(query)
         if user_id:
-            state_manager.set_state(user_id, UserState.AWAITING_CONFIG_VALUE, field_name="lead_days")
+            state_manager.set_state(
+                user_id, UserState.AWAITING_CONFIG_VALUE, field_name="lead_days"
+            )
         await query.edit_message_text(
-            "📅 <b>Dias de antecedência</b>\n\n"
-            "Envie números separados por vírgula (ex: 3,1,0)",
+            "📅 <b>Dias de antecedência</b>\n\nEnvie números separados por vírgula (ex: 3,1,0)",
             parse_mode="HTML",
             reply_markup=get_back_keyboard("config:done"),
         )
@@ -1123,7 +1124,7 @@ async def handle_config(query, context, params):
         )
 
 
-async def handle_back(query, context, params):
+async def handle_back(query, _context, params):
     """Handle back navigation."""
     if not params:
         return
@@ -1131,21 +1132,19 @@ async def handle_back(query, context, params):
 
     if target == "main":
         await query.edit_message_text(
-            "🏠 <b>Menu Principal</b>\n\n"
-            "Use os botões abaixo ou comandos:",
+            "🏠 <b>Menu Principal</b>\n\nUse os botões abaixo ou comandos:",
             parse_mode="HTML",
             reply_markup=get_main_menu_keyboard(),
         )
-    elif target == "review_edit":
-        if len(params) > 1:
-            bill_id = int(params[1])
-            repo = BillRepository()
-            try:
-                bill = await repo.get_bill(bill_id)
-                if bill:
-                    await show_bill_for_review(query, bill, edit=True)
-            finally:
-                await repo.close()
+    elif target == "review_edit" and len(params) > 1:
+        bill_id = int(params[1])
+        repo = BillRepository()
+        try:
+            bill = await repo.get_bill(bill_id)
+            if bill:
+                await show_bill_for_review(query, bill, edit=True)
+        finally:
+            await repo.close()
 
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1157,19 +1156,24 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_state = state_manager.get_state(user_id)
 
     if user_state.state == UserState.EDITING_FIELD:
-        await handle_edit_value(update, context, user_state)
+        await handle_edit_value(update, context, user_state, user_id)
     elif user_state.state == UserState.AWAITING_CONFIG_VALUE:
-        await handle_config_value(update, context, user_state)
+        await handle_config_value(update, context, user_state, user_id)
     elif user_state.state == UserState.AWAITING_ALERT_TIME:
-        await handle_alert_time_value(update, context, user_state)
+        await handle_alert_time_value(update, context, user_state, user_id)
     elif user_state.state == UserState.AWAITING_SNOOZE_DAYS:
-        await handle_snooze_days_value(update, context, user_state)
+        await handle_snooze_days_value(update, context, user_state, user_id)
     else:
         # Default: treat as potential boleto text
         pass
 
 
-async def handle_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE, user_state: UserStateData) -> None:
+async def handle_edit_value(
+    update: Update,
+    _context: ContextTypes.DEFAULT_TYPE,
+    user_state: UserStateData,
+    user_id: int,
+) -> None:
     """Handle field value during editing."""
     bill_id = user_state.bill_id
     field_name = user_state.field_name
@@ -1193,19 +1197,21 @@ async def handle_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             if field_name == "valor":
                 value = int(new_value)
                 if value < 0:
-                    raise ValueError("Valor deve ser positivo")
+                    _raise_invalid_input("Valor deve ser positivo")
             elif field_name == "vencimento":
                 # Parse DD/MM/YYYY
-                from datetime import datetime
                 datetime.strptime(new_value, "%d/%m/%Y")
                 value = new_value
             elif field_name in ("linha_digitavel", "codigo_barras"):
                 # Validate digits only
                 digits = "".join(c for c in new_value if c.isdigit())
-                if field_name == "linha_digitavel" and len(digits) not in (47, 48):
-                    raise ValueError("Linha digitável deve ter 47 ou 48 dígitos")
-                if field_name == "codigo_barras" and len(digits) != 44:
-                    raise ValueError("Código de barras deve ter 44 dígitos")
+                if field_name == "linha_digitavel" and len(digits) not in (
+                    BOLETO_LENGTH,
+                    ARRECADACAO_LENGTH,
+                ):
+                    _raise_invalid_input("Linha digitável deve ter 47 ou 48 dígitos")
+                if field_name == "codigo_barras" and len(digits) != CODIGO_BARRAS_LENGTH:
+                    _raise_invalid_input("Código de barras deve ter 44 dígitos")
                 value = digits
             else:
                 value = new_value
@@ -1235,7 +1241,12 @@ async def handle_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         await repo.close()
 
 
-async def handle_config_value(update: Update, context: ContextTypes.DEFAULT_TYPE, user_state: UserStateData) -> None:
+async def handle_config_value(
+    update: Update,
+    _context: ContextTypes.DEFAULT_TYPE,
+    user_state: UserStateData,
+    user_id: int,
+) -> None:
     """Handle config value input."""
     field_name = user_state.temp_data.get("field_name")
     new_value = update.message.text.strip()
@@ -1251,12 +1262,16 @@ async def handle_config_value(update: Update, context: ContextTypes.DEFAULT_TYPE
     state_manager.clear_state(user_id)
 
 
-async def handle_alert_time_value(update: Update, context: ContextTypes.DEFAULT_TYPE, user_state: UserStateData) -> None:
+async def handle_alert_time_value(
+    update: Update,
+    _context: ContextTypes.DEFAULT_TYPE,
+    _user_state: UserStateData,
+    user_id: int,
+) -> None:
     """Handle alert time input."""
     new_value = update.message.text.strip()
 
     try:
-        from datetime import datetime
         datetime.strptime(new_value, "%H:%M")
 
         await update.message.reply_text(
@@ -1272,15 +1287,20 @@ async def handle_alert_time_value(update: Update, context: ContextTypes.DEFAULT_
     state_manager.clear_state(user_id)
 
 
-async def handle_snooze_days_value(update: Update, context: ContextTypes.DEFAULT_TYPE, user_state: UserStateData) -> None:
+async def handle_snooze_days_value(
+    update: Update,
+    _context: ContextTypes.DEFAULT_TYPE,
+    user_state: UserStateData,
+    user_id: int,
+) -> None:
     """Handle snooze days input."""
     bill_id = user_state.bill_id
     new_value = update.message.text.strip()
 
     try:
         days = int(new_value)
-        if days < 1 or days > 365:
-            raise ValueError("Dias deve ser entre 1 e 365")
+        if days < 1 or days > MAX_SNOOZE_DAYS:
+            _raise_invalid_input("Dias deve ser entre 1 e 365")
 
         repo = BillRepository()
         try:
@@ -1320,7 +1340,6 @@ def register_handlers(application) -> None:
     application.add_handler(CallbackQueryHandler(handle_callback_query))
 
     # Apply middlewares
-    from autobill.bot.middleware import apply_middlewares
     apply_middlewares(application)
 
     logger.info("All bot handlers registered")

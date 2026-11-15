@@ -34,21 +34,15 @@ class Settings(BaseSettings):
     ollama_host: str = Field(
         default="http://ollama:11434", description="Host do Ollama para modelo local"
     )
-    llm_vision_model: str = Field(
-        default="qwen2.5-vl", description="Modelo de visão no Ollama"
-    )
+    llm_vision_model: str = Field(default="qwen2.5-vl", description="Modelo de visão no Ollama")
 
     # Alerts
-    default_timezone: str = Field(
-        default="America/Fortaleza", description="Fuso horário padrão"
-    )
+    default_timezone: str = Field(default="America/Fortaleza", description="Fuso horário padrão")
     alert_time: str = Field(default="07:30", description="Horário dos alertas (HH:MM)")
     lead_days: list[int] = Field(
         default_factory=lambda: [3, 1, 0], description="Antecedências dos alertas"
     )
-    auto_confirm: bool = Field(
-        default=False, description="Ativar faturas válidas automaticamente"
-    )
+    auto_confirm: bool = Field(default=False, description="Ativar faturas válidas automaticamente")
 
     # Optional IMAP
     imap_enabled: bool = Field(default=False, description="Habilitar monitoramento IMAP")

@@ -5,6 +5,10 @@ from datetime import datetime
 from autobill.db.models import Bill, BillStatus
 from autobill.rules.money import formatar_centavos
 
+DUE_SOON_DAYS = 3
+HIGH_CONFIDENCE_PERCENT = 80
+MEDIUM_CONFIDENCE_PERCENT = 50
+
 
 def format_bill_summary(bill: Bill, show_id: bool = True) -> str:
     """Format a bill as a summary line."""
@@ -42,7 +46,9 @@ def format_bill_summary(bill: Bill, show_id: bool = True) -> str:
     return " | ".join(parts)
 
 
-def format_bill_details(bill: Bill, show_confidence: bool = True) -> str:
+def format_bill_details(  # noqa: C901, PLR0912, PLR0915
+    bill: Bill, show_confidence: bool = True
+) -> str:
     """Format full bill details for review."""
     lines = [
         f"<b>📄 Boleto #{bill.id}</b>",
@@ -64,7 +70,7 @@ def format_bill_details(bill: Bill, show_confidence: bool = True) -> str:
                 status = f"⚠️ VENCIDO há {abs(days_diff)} dias"
             elif days_diff == 0:
                 status = "⚠️ VENCE HOJE"
-            elif days_diff <= 3:
+            elif days_diff <= DUE_SOON_DAYS:
                 status = f"⚠️ Vence em {days_diff} dias"
             else:
                 status = f"📅 Em {days_diff} dias"
@@ -80,11 +86,15 @@ def format_bill_details(bill: Bill, show_confidence: bool = True) -> str:
         lines.append(f"👤 <b>Pagador:</b> {bill.pagador}")
 
     if bill.linha_digitavel:
-        masked = bill.linha_digitavel[:-4].replace(bill.linha_digitavel[:-4], "•" * (len(bill.linha_digitavel) - 4))
+        masked = bill.linha_digitavel[:-4].replace(
+            bill.linha_digitavel[:-4], "•" * (len(bill.linha_digitavel) - 4)
+        )
         lines.append(f"🔢 <b>Linha Digitável:</b> <code>{masked}{bill.linha_digitavel[-4:]}</code>")
 
     if bill.codigo_barras:
-        masked = bill.codigo_barras[:-4].replace(bill.codigo_barras[:-4], "•" * (len(bill.codigo_barras) - 4))
+        masked = bill.codigo_barras[:-4].replace(
+            bill.codigo_barras[:-4], "•" * (len(bill.codigo_barras) - 4)
+        )
         lines.append(f"📊 <b>Código de Barras:</b> <code>{masked}{bill.codigo_barras[-4:]}</code>")
 
     if bill.nosso_numero:
@@ -116,7 +126,13 @@ def format_bill_details(bill: Bill, show_confidence: bool = True) -> str:
 
     if show_confidence and bill.confidence is not None:
         conf_pct = int(bill.confidence * 100)
-        conf_emoji = "🟢" if conf_pct >= 80 else "🟡" if conf_pct >= 50 else "🔴"
+        conf_emoji = (
+            "🟢"
+            if conf_pct >= HIGH_CONFIDENCE_PERCENT
+            else "🟡"
+            if conf_pct >= MEDIUM_CONFIDENCE_PERCENT
+            else "🔴"
+        )
         lines.append(f"{conf_emoji} <b>Confiança:</b> {conf_pct}%")
 
     if bill.extraction_method:
@@ -125,8 +141,7 @@ def format_bill_details(bill: Bill, show_confidence: bool = True) -> str:
     if bill.validation_errors:
         lines.append("")
         lines.append("⚠️ <b>Erros de Validação:</b>")
-        for error in bill.validation_errors:
-            lines.append(f"  • {error}")
+        lines.extend(f"  • {error}" for error in bill.validation_errors)
 
     return "\n".join(lines)
 
@@ -141,8 +156,7 @@ def format_bill_list(bills: list[Bill], page: int, total_pages: int, filter_name
         "",
     ]
 
-    for bill in bills:
-        lines.append(format_bill_summary(bill))
+    lines.extend(format_bill_summary(bill) for bill in bills)
 
     return "\n".join(lines)
 
@@ -162,10 +176,7 @@ def format_alert_message(bill: Bill, alert_type: str = "upcoming") -> str:
         except ValueError:
             urgency = "📅 <b>Vencimento próximo</b>"
 
-        return (
-            f"{urgency}\n\n"
-            f"{format_bill_details(bill, show_confidence=False)}"
-        )
+        return f"{urgency}\n\n{format_bill_details(bill, show_confidence=False)}"
 
     if alert_type == "overdue":
         try:
@@ -176,7 +187,9 @@ def format_alert_message(bill: Bill, alert_type: str = "upcoming") -> str:
                 f"{format_bill_details(bill, show_confidence=False)}"
             )
         except ValueError:
-            return f"🚨 <b>BOLETO VENCIDO!</b>\n\n{format_bill_details(bill, show_confidence=False)}"
+            return (
+                f"🚨 <b>BOLETO VENCIDO!</b>\n\n{format_bill_details(bill, show_confidence=False)}"
+            )
 
     elif alert_type == "snooze_end":
         return (

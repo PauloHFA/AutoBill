@@ -1,6 +1,7 @@
 """Middleware for Telegram bot."""
 
 import logging
+import random
 import time
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
@@ -13,6 +14,8 @@ from autobill.bot.state import state_manager
 from autobill.config import settings
 
 logger = logging.getLogger(__name__)
+
+STATE_CLEANUP_CHANCE = 0.01
 
 
 class RateLimiter:
@@ -60,7 +63,7 @@ async def auth_middleware(
     user_id = update.effective_user.id
 
     # Check if bot has authorized users configured
-    authorized_users = settings.telegram_authorized_users
+    authorized_users = settings.allowed_chat_ids
     if authorized_users and user_id not in authorized_users:
         if update.message:
             await update.message.reply_text(
@@ -128,7 +131,9 @@ async def logging_middleware(
     if update.message:
         log_data["message_type"] = "text" if update.message.text else "media"
         if update.message.text:
-            log_data["command"] = update.message.text.split()[0] if update.message.text.startswith("/") else None
+            log_data["command"] = (
+                update.message.text.split()[0] if update.message.text.startswith("/") else None
+            )
     elif update.callback_query:
         log_data["callback_data"] = update.callback_query.data[:50]
 
@@ -139,7 +144,6 @@ async def logging_middleware(
             "Update processed",
             extra={**log_data, "duration_ms": round(duration * 1000, 2)},
         )
-        return result
     except Exception as e:
         duration = time.time() - start_time
         logger.exception(
@@ -147,6 +151,8 @@ async def logging_middleware(
             extra={**log_data, "duration_ms": round(duration * 1000, 2), "error": str(e)},
         )
         raise
+    else:
+        return result
 
 
 async def state_cleanup_middleware(
@@ -155,9 +161,7 @@ async def state_cleanup_middleware(
     next_handler: Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[Any]],
 ) -> Any:
     """Periodic state cleanup middleware."""
-    # Run cleanup occasionally (1% chance per update)
-    import random
-    if random.random() < 0.01:
+    if random.random() < STATE_CLEANUP_CHANCE:
         removed = state_manager.cleanup_old_states(max_age_hours=24)
         if removed:
             logger.info(f"Cleaned up {removed} old user states")

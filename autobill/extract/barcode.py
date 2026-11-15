@@ -4,6 +4,7 @@ from pathlib import Path
 
 try:
     import zxingcpp
+
     ZXING_AVAILABLE = True
 except ImportError:
     ZXING_AVAILABLE = False
@@ -13,6 +14,7 @@ from PIL import Image
 
 try:
     from pdf2image import convert_from_path
+
     PDF2IMAGE_AVAILABLE = True
 except ImportError:
     PDF2IMAGE_AVAILABLE = False
@@ -87,9 +89,7 @@ def extract_barcode_from_pdf(pdf_path: str | Path) -> str | None:
         for page_img in images:
             # Converte para RGB se necessário
             page_img_rgb = (
-                page_img.convert("RGB")
-                if page_img.mode not in ("RGB", "L")
-                else page_img
+                page_img.convert("RGB") if page_img.mode not in ("RGB", "L") else page_img
             )
 
             results = zxingcpp.read_barcodes(page_img_rgb)
@@ -168,9 +168,7 @@ def extract_all_barcodes_from_pdf(pdf_path: str | Path) -> list[str]:
 
         for page_img in images:
             page_img_rgb = (
-                page_img.convert("RGB")
-                if page_img.mode not in ("RGB", "L")
-                else page_img
+                page_img.convert("RGB") if page_img.mode not in ("RGB", "L") else page_img
             )
 
             results = zxingcpp.read_barcodes(page_img_rgb)
@@ -190,4 +188,3 @@ def extract_all_barcodes_from_pdf(pdf_path: str | Path) -> list[str]:
 def is_zxing_available() -> bool:
     """Verifica se zxing-cpp está disponível."""
     return ZXING_AVAILABLE
-

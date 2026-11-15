@@ -114,9 +114,7 @@ class AlertSent(Base):
     # Relationship
     bill: Mapped["Bill"] = relationship("Bill", back_populates="alerts_sent")
 
-    __table_args__ = (
-        UniqueConstraint("bill_id", "alert_type", name="uq_bill_alert_type"),
-    )
+    __table_args__ = (UniqueConstraint("bill_id", "alert_type", name="uq_bill_alert_type"),)
 
 
 class RecurringBill(Base):

@@ -109,9 +109,7 @@ class BillRepository:
 
     async def get_by_hash(self, hash_sha256: str) -> Bill | None:
         """Get bill by SHA-256 hash."""
-        result = await self.session.execute(
-            select(Bill).where(Bill.hash_sha256 == hash_sha256)
-        )
+        result = await self.session.execute(select(Bill).where(Bill.hash_sha256 == hash_sha256))
         return result.scalar_one_or_none()
 
     async def get_by_linha_digitavel(self, linha_digitavel: str) -> Bill | None:
@@ -222,9 +220,7 @@ class BillRepository:
                 summary[status] = row.count
                 summary[f"total_{status}"] = row.total
 
-        summary["previsto"] = sum(
-            summary.get(s, 0) for s in ["pendente", "pago", "vencida"]
-        )
+        summary["previsto"] = sum(summary.get(s, 0) for s in ["pendente", "pago", "vencida"])
         summary["total_previsto"] = sum(
             summary.get(f"total_{s}", 0) for s in ["pendente", "pago", "vencida"]
         )

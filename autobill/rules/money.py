@@ -6,12 +6,14 @@ from decimal import ROUND_HALF_UP, Decimal
 
 class MoneyTypeError(TypeError):
     """Erro quando o tipo de centavos é inválido."""
+
     MSG = "centavos must be int"
 
 
 @dataclass
 class Money:
     """Valor monetário armazenado em centavos (inteiro)."""
+
     centavos: int
 
     def __post_init__(self) -> None:

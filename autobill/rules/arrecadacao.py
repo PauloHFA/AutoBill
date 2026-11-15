@@ -11,6 +11,7 @@ BOLETO_LENGTH = 47
 
 class ArrecadacaoParsed(TypedDict):
     """Estrutura parseada de arrecadação."""
+
     campo1: str
     campo2: str
     campo3: str
@@ -39,11 +40,11 @@ def parse_arrecadacao(linha: str) -> ArrecadacaoParsed | None:
         return None
 
     return ArrecadacaoParsed(
-        campo1=limpa[0:11],   # 10 dígitos + DV
+        campo1=limpa[0:11],  # 10 dígitos + DV
         campo2=limpa[11:22],  # 10 dígitos + DV
         campo3=limpa[22:33],  # 10 dígitos + DV
         campo4=limpa[33:44],  # 10 dígitos + DV
-        dv_geral=limpa[44],   # DV geral do código de barras
+        dv_geral=limpa[44],  # DV geral do código de barras
         campo5=limpa[45:48],  # 3 dígitos (parte do valor/fator)
         raw=limpa,
     )
@@ -63,7 +64,7 @@ def validar_arrecadacao(linha: str) -> bool:
     if not parsed:
         return False
 
-    # Valida módulo 10 em cada um dos 4 campos
+        # Valida módulo 10 em cada um dos 4 campos
         for campo_key in ("campo1", "campo2", "campo3", "campo4"):
             campo = parsed[campo_key]
         if not validar_modulo10(campo):

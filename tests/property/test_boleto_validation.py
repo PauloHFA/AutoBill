@@ -202,8 +202,10 @@ class TestMoney:
         expected_centavos = int((reais * 100).quantize(Decimal("1")))
         assert money.centavos == expected_centavos
 
-    @given(st.integers(min_value=0, max_value=10_000_000),
-           st.integers(min_value=0, max_value=10_000_000))
+    @given(
+        st.integers(min_value=0, max_value=10_000_000),
+        st.integers(min_value=0, max_value=10_000_000),
+    )
     def test_money_addition(self, a: int, b: int):
         """Money addition should work correctly."""
         money_a = Money(a)
@@ -211,8 +213,10 @@ class TestMoney:
         result = money_a + money_b
         assert result.centavos == a + b
 
-    @given(st.integers(min_value=0, max_value=10_000_000),
-           st.integers(min_value=0, max_value=10_000_000))
+    @given(
+        st.integers(min_value=0, max_value=10_000_000),
+        st.integers(min_value=0, max_value=10_000_000),
+    )
     def test_money_subtraction(self, a: int, b: int):
         """Money subtraction should work correctly."""
         money_a = Money(a)
@@ -220,8 +224,7 @@ class TestMoney:
         result = money_a - money_b
         assert result.centavos == a - b
 
-    @given(st.integers(min_value=0, max_value=10_000_000),
-           st.integers(min_value=1, max_value=100))
+    @given(st.integers(min_value=0, max_value=10_000_000), st.integers(min_value=1, max_value=100))
     def test_money_multiplication(self, centavos: int, factor: int):
         """Money multiplication should work correctly."""
         money = Money(centavos)
@@ -236,8 +239,10 @@ class TestMoney:
         # Just verify it returns int or None
         assert result is None or isinstance(result, int)
 
-    @given(st.integers(min_value=0, max_value=10_000_000),
-           st.integers(min_value=0, max_value=10_000_000))
+    @given(
+        st.integers(min_value=0, max_value=10_000_000),
+        st.integers(min_value=0, max_value=10_000_000),
+    )
     def test_comparar_valores(self, v1: int, v2: int):
         """comparar_valores should work correctly."""
         result = comparar_valores(v1, v2, tolerancia=1)
@@ -302,7 +307,6 @@ class TestKnownValidCases:
         parsed = parse_linha_digitavel(linha)
         assert parsed is not None
         assert parsed.tipo == "arrecadacao"
-
 
         if __name__ == "__main__":
             pytest.main([__file__, "-v"])

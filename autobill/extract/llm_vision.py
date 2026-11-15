@@ -8,6 +8,7 @@ from typing import Any
 try:
     from google import genai
     from google.genai import types
+
     GENAI_AVAILABLE = True
 except ImportError:
     GENAI_AVAILABLE = False
@@ -18,6 +19,7 @@ except ImportError:
 @dataclass
 class LLMVisionResult:
     """Resultado da extração via LLM Vision."""
+
     linha_digitavel: str | None = None
     codigo_barras: str | None = None
     valor: int | None = None  # Em centavos
@@ -152,7 +154,4 @@ def extract_boleto_with_llm_vision(
 
 def is_genai_available() -> bool:
     """Verifica se Google GenAI está disponível e configurado."""
-    return GENAI_AVAILABLE and bool(
-        os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    )
-
+    return GENAI_AVAILABLE and bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
