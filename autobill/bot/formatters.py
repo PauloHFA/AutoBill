@@ -17,38 +17,28 @@ def format_bill_summary(bill: Bill, show_id: bool = True) -> str:
     if show_id:
         parts.append(f"#{bill.id}")
 
-    if bill.valor:
-        parts.append(f"💰 {formatar_centavos(bill.valor)}")
+    if bill.valor_centavos is not None:
+        parts.append(f"💰 {formatar_centavos(bill.valor_centavos)}")
 
     if bill.vencimento:
-        try:
-            venc = datetime.fromisoformat(bill.vencimento)
-            parts.append(f"📅 {venc.strftime('%d/%m/%Y')}")
-        except ValueError:
-            parts.append(f"📅 {bill.vencimento}")
+        parts.append(f"📅 {bill.vencimento.strftime('%d/%m/%Y')}")
 
     if bill.beneficiario:
         parts.append(f"🏢 {bill.beneficiario[:30]}")
 
-    if bill.pagador:
-        parts.append(f"👤 {bill.pagador[:30]}")
-
     status_emoji = {
-        BillStatus.PENDING: "⏳",
-        BillStatus.APPROVED: "✅",
-        BillStatus.REJECTED: "❌",
-        BillStatus.PAID: "💰",
-        BillStatus.OVERDUE: "⚠️",
-        BillStatus.SNOOZED: "😴",
+        BillStatus.EM_REVISAO: "✏️",
+        BillStatus.PENDENTE: "⏳",
+        BillStatus.PAGO: "✅",
+        BillStatus.VENCIDA: "⚠️",
+        BillStatus.DESCARTADA: "❌",
     }
     parts.append(f"{status_emoji.get(bill.status, '❓')} {bill.status.value}")
 
     return " | ".join(parts)
 
 
-def format_bill_details(  # noqa: C901, PLR0912, PLR0915
-    bill: Bill, show_confidence: bool = True
-) -> str:
+def format_bill_details(bill: Bill, show_confidence: bool = True) -> str:
     """Format full bill details for review."""
     lines = [
         f"<b>📄 Boleto #{bill.id}</b>",
@@ -56,34 +46,27 @@ def format_bill_details(  # noqa: C901, PLR0912, PLR0915
         "",
     ]
 
-    if bill.valor:
-        lines.append(f"💰 <b>Valor:</b> {formatar_centavos(bill.valor)}")
+    if bill.valor_centavos is not None:
+        lines.append(f"💰 <b>Valor:</b> {formatar_centavos(bill.valor_centavos)}")
 
     if bill.vencimento:
-        try:
-            venc = datetime.fromisoformat(bill.vencimento)
-            today = datetime.now().date()
-            venc_date = venc.date()
-            days_diff = (venc_date - today).days
+        venc = bill.vencimento
+        today = datetime.now().date()
+        days_diff = (venc.date() - today).days
 
-            if days_diff < 0:
-                status = f"⚠️ VENCIDO há {abs(days_diff)} dias"
-            elif days_diff == 0:
-                status = "⚠️ VENCE HOJE"
-            elif days_diff <= DUE_SOON_DAYS:
-                status = f"⚠️ Vence em {days_diff} dias"
-            else:
-                status = f"📅 Em {days_diff} dias"
+        if days_diff < 0:
+            status = f"⚠️ VENCIDO há {abs(days_diff)} dias"
+        elif days_diff == 0:
+            status = "⚠️ VENCE HOJE"
+        elif days_diff <= DUE_SOON_DAYS:
+            status = f"⚠️ Vence em {days_diff} dias"
+        else:
+            status = f"📅 Em {days_diff} dias"
 
-            lines.append(f"📅 <b>Vencimento:</b> {venc.strftime('%d/%m/%Y')} ({status})")
-        except ValueError:
-            lines.append(f"📅 <b>Vencimento:</b> {bill.vencimento}")
+        lines.append(f"📅 <b>Vencimento:</b> {venc.strftime('%d/%m/%Y')} ({status})")
 
     if bill.beneficiario:
         lines.append(f"🏢 <b>Beneficiário:</b> {bill.beneficiario}")
-
-    if bill.pagador:
-        lines.append(f"👤 <b>Pagador:</b> {bill.pagador}")
 
     if bill.linha_digitavel:
         masked = bill.linha_digitavel[:-4].replace(
@@ -97,32 +80,7 @@ def format_bill_details(  # noqa: C901, PLR0912, PLR0915
         )
         lines.append(f"📊 <b>Código de Barras:</b> <code>{masked}{bill.codigo_barras[-4:]}</code>")
 
-    if bill.nosso_numero:
-        lines.append(f"🔖 <b>Nosso Número:</b> {bill.nosso_numero}")
-
-    if bill.documento:
-        lines.append(f"📋 <b>Documento:</b> {bill.documento}")
-
-    if bill.data_documento:
-        lines.append(f"📝 <b>Data Documento:</b> {bill.data_documento}")
-
-    if bill.especie:
-        lines.append(f"📄 <b>Espécie:</b> {bill.especie}")
-
-    if bill.aceite:
-        lines.append(f"✍️ <b>Aceite:</b> {bill.aceite}")
-
-    if bill.data_processamento:
-        lines.append(f"⚙️ <b>Data Processamento:</b> {bill.data_processamento}")
-
-    if bill.instrucoes:
-        lines.append(f"📝 <b>Instruções:</b> {bill.instrucoes[:200]}")
-
-    if bill.local_pagamento:
-        lines.append(f"🏦 <b>Local Pagamento:</b> {bill.local_pagamento}")
-
-    if bill.source:
-        lines.append(f"📥 <b>Origem:</b> {bill.source}")
+    lines.append(f"📥 <b>Origem:</b> {bill.origem.value}")
 
     if show_confidence and bill.confidence is not None:
         conf_pct = int(bill.confidence * 100)
@@ -134,14 +92,6 @@ def format_bill_details(  # noqa: C901, PLR0912, PLR0915
             else "🔴"
         )
         lines.append(f"{conf_emoji} <b>Confiança:</b> {conf_pct}%")
-
-    if bill.extraction_method:
-        lines.append(f"🔧 <b>Método:</b> {bill.extraction_method}")
-
-    if bill.validation_errors:
-        lines.append("")
-        lines.append("⚠️ <b>Erros de Validação:</b>")
-        lines.extend(f"  • {error}" for error in bill.validation_errors)
 
     return "\n".join(lines)
 
@@ -164,34 +114,29 @@ def format_bill_list(bills: list[Bill], page: int, total_pages: int, filter_name
 def format_alert_message(bill: Bill, alert_type: str = "upcoming") -> str:
     """Format alert message for a bill."""
     if alert_type == "upcoming":
-        try:
-            venc = datetime.fromisoformat(bill.vencimento)
-            days = (venc.date() - datetime.now().date()).days
+        if bill.vencimento is None:
+            urgency = "📅 <b>Vencimento próximo</b>"
+        else:
+            days = (bill.vencimento.date() - datetime.now().date()).days
             if days == 0:
                 urgency = "🚨 <b>VENCE HOJE!</b>"
             elif days == 1:
                 urgency = "⚠️ <b>Vence amanhã!</b>"
             else:
                 urgency = f"📅 <b>Vence em {days} dias</b>"
-        except ValueError:
-            urgency = "📅 <b>Vencimento próximo</b>"
 
         return f"{urgency}\n\n{format_bill_details(bill, show_confidence=False)}"
 
     if alert_type == "overdue":
-        try:
-            venc = datetime.fromisoformat(bill.vencimento)
-            days = (datetime.now().date() - venc.date()).days
+        if bill.vencimento is not None:
+            days = (datetime.now().date() - bill.vencimento.date()).days
             return (
                 f"🚨 <b>BOLETO VENCIDO HÁ {days} DIAS!</b>\n\n"
                 f"{format_bill_details(bill, show_confidence=False)}"
             )
-        except ValueError:
-            return (
-                f"🚨 <b>BOLETO VENCIDO!</b>\n\n{format_bill_details(bill, show_confidence=False)}"
-            )
+        return f"🚨 <b>BOLETO VENCIDO!</b>\n\n{format_bill_details(bill, show_confidence=False)}"
 
-    elif alert_type == "snooze_end":
+    if alert_type == "snooze_end":
         return (
             f"⏰ <b>Lembrete de boleto adiado</b>\n\n"
             f"{format_bill_details(bill, show_confidence=False)}"
