@@ -2,9 +2,10 @@
 
 import logging
 import sys
+from typing import cast
 
 import structlog
-from structlog.types import EventDict, WrappedLogger
+from structlog.types import EventDict, Processor, WrappedLogger
 
 # Constant for masking
 MASK_LENGTH = 4
@@ -32,7 +33,7 @@ def add_masking(_logger: WrappedLogger, _method_name: str, event_dict: EventDict
 
 def setup_logging(json_logs: bool = True, log_level: str = "INFO") -> None:
     """Configure structlog for the application."""
-    shared_processors = [
+    shared_processors: list[Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
@@ -44,7 +45,7 @@ def setup_logging(json_logs: bool = True, log_level: str = "INFO") -> None:
     ]
 
     if json_logs:
-        processors = [*shared_processors, structlog.processors.JSONRenderer()]
+        processors: list[Processor] = [*shared_processors, structlog.processors.JSONRenderer()]
     else:
         processors = [*shared_processors, structlog.dev.ConsoleRenderer(colors=True)]
 
@@ -73,4 +74,4 @@ def setup_logging(json_logs: bool = True, log_level: str = "INFO") -> None:
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     """Get a logger instance."""
-    return structlog.get_logger(name)
+    return cast("structlog.stdlib.BoundLogger", structlog.get_logger(name))

@@ -128,8 +128,8 @@ def extract_text_from_pdf(pdf_path: str | Path) -> str:
     # Fallback para pypdf
     try:
         reader = PdfReader(str(pdf_path))
-        for page in reader.pages:
-            page_text = page.extract_text()
+        for pdf_page in reader.pages:
+            page_text = pdf_page.extract_text()
             if page_text:
                 text_parts.append(page_text)
         return "\n\n".join(text_parts)

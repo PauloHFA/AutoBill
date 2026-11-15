@@ -508,7 +508,7 @@ class ExtractionPipeline:
 
         score = 0.0
 
-        total = 0
+        total = 0.0
 
         # Campos principais (peso maior)
 

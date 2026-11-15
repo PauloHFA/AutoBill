@@ -56,7 +56,7 @@ class Bill(Base):
     __tablename__ = "bills"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    hash_sha256: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    hash_sha256: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     linha_digitavel: Mapped[str | None] = mapped_column(String(48), index=True, nullable=True)
     codigo_barras: Mapped[str | None] = mapped_column(String(44), index=True, nullable=True)
     beneficiario: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -70,6 +70,7 @@ class Bill(Base):
         index=True,
         nullable=False,
     )
+    user_id: Mapped[int | None] = mapped_column(BigInteger, index=True, nullable=True)
     origem: Mapped[BillOrigin] = mapped_column(
         Enum(BillOrigin, native_enum=False), default=BillOrigin.PASTA, nullable=False
     )
@@ -83,6 +84,7 @@ class Bill(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     alerts_sent: Mapped[list["AlertSent"]] = relationship(
@@ -92,6 +94,7 @@ class Bill(Base):
     __table_args__ = (
         Index("ix_bills_status_vencimento", "status", "vencimento"),
         Index("ix_bills_linha_digitavel_status", "linha_digitavel", "status"),
+        UniqueConstraint("user_id", "hash_sha256", name="uq_bills_user_hash"),
     )
 
 

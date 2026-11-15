@@ -5,7 +5,7 @@ import time
 from html import escape
 from pathlib import Path
 
-from telegram import Update
+from telegram import CallbackQuery, Update
 from telegram.ext import ContextTypes
 
 from autobill.config import settings
@@ -15,11 +15,10 @@ logger = logging.getLogger(__name__)
 BYTES_PER_UNIT = 1024
 
 
-def get_user_id(update: Update) -> int | None:
+def get_user_id(update: Update | CallbackQuery) -> int | None:
     """Extract user ID from update."""
-    if update.effective_user:
-        return update.effective_user.id
-    return None
+    user = update.from_user if isinstance(update, CallbackQuery) else update.effective_user
+    return user.id if user else None
 
 
 def get_chat_id(update: Update) -> int | None:
