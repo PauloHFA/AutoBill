@@ -530,11 +530,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif action == "edit_cancel":
         await handle_edit_cancel(query, context, params)
     elif action == "confirm_approve":
-        await handle_confirm_approve(query, context, params)
+        await handle_review_approve(query, context, params)
     elif action == "confirm_reject":
         await handle_confirm_reject(query, context, params)
-    elif action == "cancel_approve":
-    elif action == "cancel_reject":
+    elif action in ("cancel_approve", "cancel_reject"):
         await handle_review_cancel(query, context, params)
     elif action == "filter":
         await handle_filter(query, context, params)
