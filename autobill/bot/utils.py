@@ -1,5 +1,6 @@
 """Utility functions for Telegram bot."""
 
+from html import escape
 import io
 import logging
 import os
@@ -127,13 +128,7 @@ def truncate_text(text: str, max_length: int = 4000) -> str:
 
 def escape_html(text: str) -> str:
     """Escape HTML special characters."""
-    return (
-        text.replace("&", "&")
-        .replace("<", "<")
-        .replace(">", ">")
-        .replace('"', """)
-        .replace("'", "'")
-    )
+    return escape(text, quote=True)
 
 
 def parse_callback_data(data: str) -> tuple[str, list[str]]:
