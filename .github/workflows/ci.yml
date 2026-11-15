@@ -82,10 +82,15 @@ jobs:
         with:
           args: --verbose
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
       - name: Run pip-audit
         run: |
           pip install pip-audit
-          pip-audit -r pyproject.toml
+          pip-audit .
 
   docker:
     name: Docker Build
