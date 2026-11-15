@@ -2,12 +2,13 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class UserState(str, Enum):
+class UserState(StrEnum):
     """Possible user states in the bot flow."""
+
     IDLE = "idle"
     AWAITING_BILL_REVIEW = "awaiting_bill_review"
     EDITING_FIELD = "editing_field"
@@ -20,6 +21,7 @@ class UserState(str, Enum):
 @dataclass
 class UserStateData:
     """Data associated with a user's current state."""
+
     state: UserState = UserState.IDLE
     bill_id: int | None = None
     field_name: str | None = None
@@ -91,7 +93,8 @@ class StateManager:
         """Remove states older than max_age_hours. Returns count removed."""
         now = datetime.utcnow()
         to_remove = [
-            uid for uid, state in self._states.items()
+            uid
+            for uid, state in self._states.items()
             if (now - state.updated_at).total_seconds() > max_age_hours * 3600
         ]
         for uid in to_remove:

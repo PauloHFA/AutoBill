@@ -2,6 +2,8 @@
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
+KEYBOARD_ROW_WIDTH = 2
+
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     """Main menu reply keyboard."""
@@ -37,7 +39,7 @@ def get_edit_field_keyboard(bill_id: int, fields: list[str]) -> InlineKeyboardMa
     row = []
     for i, field in enumerate(fields):
         row.append(InlineKeyboardButton(field, callback_data=f"edit_field:{bill_id}:{field}"))
-        if len(row) == 2:
+        if len(row) == KEYBOARD_ROW_WIDTH:
             keyboard.append(row)
             row = []
     if row:
@@ -110,7 +112,7 @@ def get_bills_filter_keyboard(current_filter: str = "all") -> InlineKeyboardMark
     for filter_key, label in filters:
         prefix = "✓ " if filter_key == current_filter else ""
         row.append(InlineKeyboardButton(f"{prefix}{label}", callback_data=f"filter:{filter_key}"))
-        if len(row) == 2:
+        if len(row) == KEYBOARD_ROW_WIDTH:
             keyboard.append(row)
             row = []
     if row:
@@ -132,12 +134,16 @@ def get_pagination_keyboard(
     row = []
 
     if current_page > 1:
-        row.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"{base_callback}:{current_page - 1}"))
+        row.append(
+            InlineKeyboardButton("⬅️ Anterior", callback_data=f"{base_callback}:{current_page - 1}")
+        )
 
     row.append(InlineKeyboardButton(f"{current_page}/{total_pages}", callback_data="noop"))
 
     if current_page < total_pages:
-        row.append(InlineKeyboardButton("Próximo ➡️", callback_data=f"{base_callback}:{current_page + 1}"))
+        row.append(
+            InlineKeyboardButton("Próximo ➡️", callback_data=f"{base_callback}:{current_page + 1}")
+        )
 
     keyboard.append(row)
     return InlineKeyboardMarkup(keyboard)
@@ -167,6 +173,8 @@ def get_config_keyboard() -> InlineKeyboardMarkup:
 
 def get_back_keyboard(callback_data: str = "back:main") -> InlineKeyboardMarkup:
     """Simple back button keyboard."""
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Voltar", callback_data=callback_data)],
-    ])
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("⬅️ Voltar", callback_data=callback_data)],
+        ]
+    )

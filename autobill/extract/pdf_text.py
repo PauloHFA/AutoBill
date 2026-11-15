@@ -19,6 +19,7 @@ CAMPO5_MIN_LENGTH = 14
 @dataclass
 class BoletoFields:
     """Campos extraídos de um boleto."""
+
     linha_digitavel: str | None = None
     codigo_barras: str | None = None
     valor: int | None = None  # em centavos
@@ -178,111 +179,111 @@ def clean_extracted_text(text: str) -> str:
 
 
 def _clean_field_value(value: str) -> str:
-        """Limpa valor de campo extraído."""
-        return re.sub(r"\s+", " ", value.strip())
+    """Limpa valor de campo extraído."""
+    return re.sub(r"\s+", " ", value.strip())
 
 
 def _process_linha_digitavel(value: str, fields: BoletoFields) -> None:
-        """Processa campo linha digitável."""
-        value = re.sub(r"[\s\.\-]", "", value)
-        if len(value) in (47, 48):
-            fields.linha_digitavel = value
+    """Processa campo linha digitável."""
+    value = re.sub(r"[\s\.\-]", "", value)
+    if len(value) in (47, 48):
+        fields.linha_digitavel = value
 
 
 def _process_codigo_barras(value: str, fields: BoletoFields) -> None:
-        """Processa campo código de barras."""
-        value = re.sub(r"[\s\.\-]", "", value)
-        if len(value) == CODIGO_BARRAS_LENGTH:
-            fields.codigo_barras = value
+    """Processa campo código de barras."""
+    value = re.sub(r"[\s\.\-]", "", value)
+    if len(value) == CODIGO_BARRAS_LENGTH:
+        fields.codigo_barras = value
 
 
 def _process_valor(value: str, fields: BoletoFields) -> None:
-        """Processa campo valor."""
-        centavos = parse_valor_br(value)
-        if centavos is not None:
-            fields.valor = centavos
+    """Processa campo valor."""
+    centavos = parse_valor_br(value)
+    if centavos is not None:
+        fields.valor = centavos
 
 
 def _process_date_field(field_name: str, value: str, fields: BoletoFields) -> None:
-        """Processa campos de data."""
-        normalized = normalize_date(value)
-        if field_name == "vencimento":
-            fields.vencimento = normalized
-        elif field_name == "data_documento":
-            fields.data_documento = normalized
-        elif field_name == "data_processamento":
-            fields.data_processamento = normalized
+    """Processa campos de data."""
+    normalized = normalize_date(value)
+    if field_name == "vencimento":
+        fields.vencimento = normalized
+    elif field_name == "data_documento":
+        fields.data_documento = normalized
+    elif field_name == "data_processamento":
+        fields.data_processamento = normalized
 
 
 def _process_aceite(value: str, fields: BoletoFields) -> None:
-        """Processa campo aceite."""
-        fields.aceite = value.upper()
+    """Processa campo aceite."""
+    fields.aceite = value.upper()
 
 
 def _process_generic_field(field_name: str, value: str, fields: BoletoFields) -> None:
-        """Processa campos genéricos."""
-        setattr(fields, field_name, value)
+    """Processa campos genéricos."""
+    setattr(fields, field_name, value)
 
 
 def _extract_from_linha_digitavel(fields: BoletoFields) -> None:
-        """Extrai campos adicionais da linha digitável parseada."""
-        if not fields.linha_digitavel:
-            return
-        parsed = parse_linha_digitavel(fields.linha_digitavel)
-        if (
-            parsed
-            and fields.valor is None
-            and parsed.campo5
-            and len(parsed.campo5) >= CAMPO5_MIN_LENGTH
-        ):
-            # Campo5: fator(4) + valor(10) para boleto
-            valor_str = parsed.campo5[-10:]
-            with contextlib.suppress(ValueError):
-                fields.valor = int(valor_str)
+    """Extrai campos adicionais da linha digitável parseada."""
+    if not fields.linha_digitavel:
+        return
+    parsed = parse_linha_digitavel(fields.linha_digitavel)
+    if (
+        parsed
+        and fields.valor is None
+        and parsed.campo5
+        and len(parsed.campo5) >= CAMPO5_MIN_LENGTH
+    ):
+        # Campo5: fator(4) + valor(10) para boleto
+        valor_str = parsed.campo5[-10:]
+        with contextlib.suppress(ValueError):
+            fields.valor = int(valor_str)
 
 
 def extract_boleto_fields_from_text(text: str) -> BoletoFields:
-        """
-        Extrai campos de boleto de um texto usando regex.
+    """
+    Extrai campos de boleto de um texto usando regex.
 
-        Args:
-            text: Texto extraído do PDF/imagem
+    Args:
+        text: Texto extraído do PDF/imagem
 
-        Returns:
-            BoletoFields com os campos encontrados
-        """
-        text = clean_extracted_text(text)
-        fields = BoletoFields()
+    Returns:
+        BoletoFields com os campos encontrados
+    """
+    text = clean_extracted_text(text)
+    fields = BoletoFields()
 
-        # Mapeia processadores por campo
-        processors = {
-            "linha_digitavel": _process_linha_digitavel,
-            "codigo_barras": _process_codigo_barras,
-            "valor": _process_valor,
-            "vencimento": lambda v, f: _process_date_field("vencimento", v, f),
-            "data_documento": lambda v, f: _process_date_field("data_documento", v, f),
-            "data_processamento": lambda v, f: _process_date_field("data_processamento", v, f),
-            "aceite": _process_aceite,
-        }
+    # Mapeia processadores por campo
+    processors = {
+        "linha_digitavel": _process_linha_digitavel,
+        "codigo_barras": _process_codigo_barras,
+        "valor": _process_valor,
+        "vencimento": lambda v, f: _process_date_field("vencimento", v, f),
+        "data_documento": lambda v, f: _process_date_field("data_documento", v, f),
+        "data_processamento": lambda v, f: _process_date_field("data_processamento", v, f),
+        "aceite": _process_aceite,
+    }
 
-        # Extrai cada campo usando regex
-        for field_name, pattern in PATTERNS.items():
-            match = pattern.search(text)
-            if not match:
-                continue
+    # Extrai cada campo usando regex
+    for field_name, pattern in PATTERNS.items():
+        match = pattern.search(text)
+        if not match:
+            continue
 
-            value = _clean_field_value(match.group(1))
+        value = _clean_field_value(match.group(1))
 
-            processor = processors.get(field_name)
-            if processor:
-                processor(value, fields)
-            else:
-                _process_generic_field(field_name, value, fields)
+        processor = processors.get(field_name)
+        if processor:
+            processor(value, fields)
+        else:
+            _process_generic_field(field_name, value, fields)
 
-        # Se encontrou linha digitável, parseia para extrair mais campos
-        _extract_from_linha_digitavel(fields)
+    # Se encontrou linha digitável, parseia para extrair mais campos
+    _extract_from_linha_digitavel(fields)
 
-        return fields
+    return fields
 
 
 def normalize_date(date_str: str) -> str:

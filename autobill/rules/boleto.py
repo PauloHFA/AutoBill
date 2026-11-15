@@ -25,13 +25,14 @@ FATOR_DIGITS = 4
 @dataclass
 class LinhaDigitavel:
     """Estrutura da linha digitável parseada."""
+
     campo1: str  # 9 dígitos + DV
     campo2: str  # 10 dígitos + DV
     campo3: str  # 10 dígitos + DV
     campo4: str  # 1 dígito (DV geral do código de barras)
     campo5: str  # 14 dígitos (fator vencimento + valor)
-    tipo: str    # "boleto" (47) ou "arrecadacao" (48)
-    raw: str     # Linha original sem formatação
+    tipo: str  # "boleto" (47) ou "arrecadacao" (48)
+    raw: str  # Linha original sem formatação
 
 
 def parse_linha_digitavel(linha: str) -> LinhaDigitavel | None:
@@ -156,18 +157,15 @@ def codigo_barras_para_linha(codigo: str) -> str | None:
     # Extrai partes do código de barras
     # Posições: 0-8 (9), 9-18 (10), 19-28 (10), 29 (1), 30-43 (14)
     campo1_base = codigo[0:CAMPO1_BOLETO_DIGITS]
-    campo2_base = codigo[
-        CAMPO1_BOLETO_DIGITS:CAMPO1_BOLETO_DIGITS + CAMPO2_BOLETO_DIGITS
-    ]
+    campo2_base = codigo[CAMPO1_BOLETO_DIGITS : CAMPO1_BOLETO_DIGITS + CAMPO2_BOLETO_DIGITS]
     campo3_base = codigo[
-        CAMPO1_BOLETO_DIGITS + CAMPO2_BOLETO_DIGITS:
-        CAMPO1_BOLETO_DIGITS + CAMPO2_BOLETO_DIGITS + CAMPO3_BOLETO_DIGITS
+        CAMPO1_BOLETO_DIGITS + CAMPO2_BOLETO_DIGITS : CAMPO1_BOLETO_DIGITS
+        + CAMPO2_BOLETO_DIGITS
+        + CAMPO3_BOLETO_DIGITS
     ]
-    campo4 = codigo[
-        CAMPO1_BOLETO_DIGITS + CAMPO2_BOLETO_DIGITS + CAMPO3_BOLETO_DIGITS
-    ]
+    campo4 = codigo[CAMPO1_BOLETO_DIGITS + CAMPO2_BOLETO_DIGITS + CAMPO3_BOLETO_DIGITS]
     campo5 = codigo[
-        CAMPO1_BOLETO_DIGITS + CAMPO2_BOLETO_DIGITS + CAMPO3_BOLETO_DIGITS + CAMPO4_DIGITS:
+        CAMPO1_BOLETO_DIGITS + CAMPO2_BOLETO_DIGITS + CAMPO3_BOLETO_DIGITS + CAMPO4_DIGITS :
     ]
 
     # Calcula DVs módulo 10
@@ -212,7 +210,7 @@ def extrair_valor_codigo_barras(codigo: str) -> int | None:
 
     # Valor está nos últimos 10 dígitos do campo5 (posições 34-43 do código)
     # Campo5 = fator vencimento (4) + valor (10)
-    valor_str = codigo[CODIGO_BARRAS_LENGTH - VALOR_DIGITS:]
+    valor_str = codigo[CODIGO_BARRAS_LENGTH - VALOR_DIGITS :]
     try:
         return int(valor_str)
     except ValueError:
@@ -234,7 +232,7 @@ def extrair_fator_vencimento(codigo: str) -> int | None:
 
     # Fator está nos primeiros 4 dígitos do campo5 (posições 30-33 do código)
     fator_start = CAMPO1_BOLETO_DIGITS + CAMPO2_BOLETO_DIGITS + CAMPO3_BOLETO_DIGITS + CAMPO4_DIGITS
-    fator_str = codigo[fator_start:fator_start + FATOR_DIGITS]
+    fator_str = codigo[fator_start : fator_start + FATOR_DIGITS]
     try:
         return int(fator_str)
     except ValueError:

@@ -6,6 +6,7 @@ from pathlib import Path
 try:
     import pytesseract
     from PIL import Image
+
     TESSERACT_AVAILABLE = True
 except ImportError:
     TESSERACT_AVAILABLE = False
@@ -14,6 +15,7 @@ except ImportError:
 
 try:
     from pdf2image import convert_from_path
+
     PDF2IMAGE_AVAILABLE = True
 except ImportError:
     PDF2IMAGE_AVAILABLE = False
@@ -77,9 +79,7 @@ def extract_text_with_ocr_from_pdf(pdf_path: str | Path, lang: str = "por") -> s
 
         for page_img in images:
             page_img_rgb = (
-                page_img.convert("RGB")
-                if page_img.mode not in ("RGB", "L")
-                else page_img
+                page_img.convert("RGB") if page_img.mode not in ("RGB", "L") else page_img
             )
 
             config = "--psm 6 --oem 3"
@@ -167,4 +167,3 @@ def configure_tesseract_path(tesseract_cmd: str) -> bool:
         return False
     else:
         return True
-
