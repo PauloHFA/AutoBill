@@ -1,4 +1,4 @@
-# Multi-stage Docker build for AutoBill
+# Multi-stage Docker build for Sistema-Monitoramento-Boletos
 FROM python:3.12-slim AS builder
 
 # Install build dependencies
@@ -7,7 +7,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libzbar0 \
     tesseract-ocr \
     tesseract-ocr-por \
-    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -26,7 +25,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libzbar0 \
     tesseract-ocr \
     tesseract-ocr-por \
-    poppler-utils \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -42,7 +40,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY --chown=autobill:autobill autobill/ ./autobill/
-COPY --chown=autobill:autobill pyproject.toml .
+COPY --chown=autobill:autobill pyproject.toml alembic.ini ./
 
 # Create data directories
 RUN mkdir -p /app/data/inbox /app/data/rejeitados /app/data/revisao /app/data/processados /app/data/backup && \

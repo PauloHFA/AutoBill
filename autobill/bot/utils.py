@@ -16,16 +16,30 @@ BYTES_PER_UNIT = 1024
 
 
 def get_user_id(update: Update | CallbackQuery) -> int | None:
-    """Extract user ID from update."""
+    """Extract user ID from update or callback query."""
     user = update.from_user if isinstance(update, CallbackQuery) else update.effective_user
     return user.id if user else None
 
 
-def get_chat_id(update: Update) -> int | None:
-    """Extract chat ID from update."""
-    if update.effective_chat:
+def get_chat_id(update: Update | CallbackQuery) -> int | None:
+    """Extract chat ID from update or callback query."""
+    if isinstance(update, CallbackQuery):
+        if update.message and update.message.chat:
+            return update.message.chat.id
+        return update.from_user.id if update.from_user else None
+    if hasattr(update, "effective_chat") and update.effective_chat:
         return update.effective_chat.id
-    return None
+    return get_user_id(update)
+
+
+def get_actor_label(update: Update | CallbackQuery) -> str:
+    """Human-readable actor identifier for audit logs and `paid_by`."""
+    user = update.from_user if isinstance(update, CallbackQuery) else update.effective_user
+    if not user:
+        return "desconhecido"
+    if user.username:
+        return f"@{user.username}"
+    return user.first_name or str(user.id)
 
 
 def is_private_chat(update: Update) -> bool:
@@ -33,12 +47,24 @@ def is_private_chat(update: Update) -> bool:
     return bool(update.effective_chat and update.effective_chat.type == "private")
 
 
-def is_authorized_user(user_id: int) -> bool:
-    """Check if user is authorized."""
+def is_authorized_chat(
+    chat_id: int | None, user_id: int | None = None, *, strict: bool = False
+) -> bool:
+    """Check if chat_id (or user_id) is authorized.
+
+    When `strict=True` (production middleware), denies if ALLOWED_CHAT_IDS is empty.
+    """
     authorized = settings.allowed_chat_ids
     if not authorized:
-        return True  # No restriction configured
-    return user_id in authorized
+        return not strict
+    if chat_id is not None and chat_id in authorized:
+        return True
+    return user_id is not None and user_id in authorized
+
+
+def is_authorized_user(user_id: int) -> bool:
+    """Check if user_id is authorized (allows empty list in isolated unit tests)."""
+    return is_authorized_chat(user_id, user_id, strict=False)
 
 
 async def download_file(

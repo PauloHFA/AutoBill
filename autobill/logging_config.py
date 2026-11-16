@@ -7,25 +7,39 @@ from typing import cast
 import structlog
 from structlog.types import EventDict, Processor, WrappedLogger
 
-# Constant for masking
-MASK_LENGTH = 4
+# Constant for masking (RNF07: show only last 6 digits)
+MASK_LENGTH = 6
+SENSITIVE_KEYS = frozenset(
+    {
+        "token",
+        "gemini_api_key",
+        "google_api_key",
+        "imap_password",
+        "telegram_bot_token",
+        "password",
+        "secret",
+        "api_key",
+    }
+)
+
+
+def mask_digits(value: str, visible_tail: int = MASK_LENGTH) -> str:
+    """Mask a numeric line/barcode leaving only the last `visible_tail` digits."""
+    if len(value) <= visible_tail:
+        return "*" * len(value)
+    return "*" * (len(value) - visible_tail) + value[-visible_tail:]
 
 
 def add_masking(_logger: WrappedLogger, _method_name: str, event_dict: EventDict) -> EventDict:
     """Mask sensitive data in logs."""
-    # Mask linha_digitavel - show only last 4 digits
-    if "linha_digitavel" in event_dict:
-        linha = event_dict["linha_digitavel"]
-        if isinstance(linha, str) and len(linha) > MASK_LENGTH:
-            event_dict["linha_digitavel"] = "*" * (len(linha) - MASK_LENGTH) + linha[-MASK_LENGTH:]
+    for field in ("linha_digitavel", "codigo_barras"):
+        if field in event_dict:
+            raw = event_dict[field]
+            if isinstance(raw, str):
+                event_dict[field] = mask_digits(raw, MASK_LENGTH)
 
-    # Mask token
-    if "token" in event_dict:
-        event_dict["token"] = "***MASKED***"
-
-    # Mask API keys
-    for key in ["gemini_api_key", "imap_password", "telegram_bot_token"]:
-        if key in event_dict:
+    for key in list(event_dict.keys()):
+        if key.lower() in SENSITIVE_KEYS:
             event_dict[key] = "***MASKED***"
 
     return event_dict

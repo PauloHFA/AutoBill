@@ -1,17 +1,16 @@
-"""Middleware for Telegram bot."""
+"""Middleware handlers for Telegram bot (python-telegram-bot TypeHandler)."""
 
 import logging
 import random
 import time
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ApplicationHandlerStop, ContextTypes, TypeHandler
 
 from autobill.bot.state import state_manager
-from autobill.config import settings
+from autobill.bot.utils import get_chat_id, get_user_id, is_authorized_chat
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,7 @@ STATE_CLEANUP_CHANCE = 0.01
 
 
 class RateLimiter:
-    """Simple rate limiter per user."""
+    """Simple rate limiter per user/chat."""
 
     def __init__(self, max_requests: int = 30, window_seconds: int = 60):
         self.max_requests = max_requests
@@ -30,13 +29,9 @@ class RateLimiter:
         """Check if user is within rate limit."""
         now = time.time()
         user_requests = self._requests[user_id]
-
-        # Remove old requests outside window
         user_requests[:] = [t for t in user_requests if now - t < self.window_seconds]
-
         if len(user_requests) >= self.max_requests:
             return False
-
         user_requests.append(now)
         return True
 
@@ -51,140 +46,59 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 
-async def auth_middleware(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    next_handler: Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[Any]],
-) -> Any:
-    """Authentication middleware - checks if user is authorized."""
-    if not update.effective_user:
-        return None
-
-    user_id = update.effective_user.id
-
-    # Check if bot has authorized users configured
-    authorized_users = settings.allowed_chat_ids
-    if authorized_users and user_id not in authorized_users:
-        if update.message:
-            await update.message.reply_text(
-                "🚫 <b>Acesso negado</b>\n\n"
-                "Este bot é privado. Contate o administrador para autorização.",
-                parse_mode="HTML",
-            )
-        elif update.callback_query:
-            await update.callback_query.answer("🚫 Acesso negado", show_alert=True)
-        logger.warning(f"Unauthorized access attempt from user {user_id}")
-        return None
-
-    return await next_handler(update, context)
+async def auth_middleware(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Verifica autorização do chat/usuário; bloqueia sem resposta quando não autorizado (RF22)."""
+    chat_id = get_chat_id(update)
+    user_id = get_user_id(update)
+    if not is_authorized_chat(chat_id, user_id, strict=True):
+        logger.warning(
+            "Unauthorized access attempt ignored: chat_id=%s user_id=%s",
+            chat_id,
+            user_id,
+        )
+        raise ApplicationHandlerStop
 
 
-async def rate_limit_middleware(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    next_handler: Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[Any]],
-) -> Any:
+async def rate_limit_middleware(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Rate limiting middleware."""
-    if not update.effective_user:
-        return None
-
-    user_id = update.effective_user.id
-
+    user_id = get_user_id(update)
+    if user_id is None:
+        return
     if not rate_limiter.is_allowed(user_id):
         remaining = rate_limiter.get_remaining(user_id)
         if update.message:
             await update.message.reply_text(
-                f"⏱ <b>Muitas requisições</b>\n\n"
-                f"Aguarde um momento antes de enviar mais comandos.\n"
-                f"Restam: {remaining} requisições/minuto",
+                f"⏱ <b>Muitas requisições</b>\n\nAguarde um momento. Restam: {remaining} req/min.",
                 parse_mode="HTML",
             )
         elif update.callback_query:
-            await update.callback_query.answer(
-                "⏱ Muitas requisições, aguarde...",
-                show_alert=True,
-            )
-        logger.warning(f"Rate limit exceeded for user {user_id}")
-        return None
-
-    return await next_handler(update, context)
+            await update.callback_query.answer("⏱ Muitas requisições, aguarde...", show_alert=True)
+        logger.warning("Rate limit exceeded for user %s", user_id)
+        raise ApplicationHandlerStop
 
 
-async def logging_middleware(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    next_handler: Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[Any]],
-) -> Any:
-    """Logging middleware for all updates."""
-    start_time = time.time()
-
+async def logging_middleware(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Structured update logging & periodic state cleanup."""
     user = update.effective_user
     chat = update.effective_chat
+    command = None
+    if update.message and update.message.text and update.message.text.startswith("/"):
+        command = update.message.text.split()[0]
 
-    log_data = {
-        "user_id": user.id if user else None,
-        "username": user.username if user else None,
-        "chat_id": chat.id if chat else None,
-        "chat_type": chat.type if chat else None,
-    }
-
-    if update.message:
-        log_data["message_type"] = "text" if update.message.text else "media"
-        if update.message.text:
-            log_data["command"] = (
-                update.message.text.split()[0] if update.message.text.startswith("/") else None
-            )
-    elif update.callback_query and update.callback_query.data:
-        log_data["callback_data"] = update.callback_query.data[:50]
-
-    try:
-        result = await next_handler(update, context)
-        duration = time.time() - start_time
-        logger.info(
-            "Update processed",
-            extra={**log_data, "duration_ms": round(duration * 1000, 2)},
-        )
-    except Exception as e:
-        duration = time.time() - start_time
-        logger.exception(
-            "Update processing failed",
-            extra={**log_data, "duration_ms": round(duration * 1000, 2), "error": str(e)},
-        )
-        raise
-    else:
-        return result
-
-
-async def state_cleanup_middleware(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    next_handler: Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[Any]],
-) -> Any:
-    """Periodic state cleanup middleware."""
+    logger.info(
+        "update_received user_id=%s chat_id=%s command=%s",
+        user.id if user else None,
+        chat.id if chat else None,
+        command,
+    )
     if random.random() < STATE_CLEANUP_CHANCE:
         removed = state_manager.cleanup_old_states(max_age_hours=24)
         if removed:
-            logger.info(f"Cleaned up {removed} old user states")
-
-    return await next_handler(update, context)
+            logger.info("Cleaned up %d old user states", removed)
 
 
 def apply_middlewares(application: Any) -> None:
-    """Apply all middlewares to the application."""
-    # Order matters: auth -> rate_limit -> logging -> state_cleanup
-    application.add_handler(
-        type("AuthMiddleware", (), {"__call__": auth_middleware})(),
-        group=-10,
-    )
-    application.add_handler(
-        type("RateLimitMiddleware", (), {"__call__": rate_limit_middleware})(),
-        group=-9,
-    )
-    application.add_handler(
-        type("LoggingMiddleware", (), {"__call__": logging_middleware})(),
-        group=-8,
-    )
-    application.add_handler(
-        type("StateCleanupMiddleware", (), {"__call__": state_cleanup_middleware})(),
-        group=-7,
-    )
+    """Apply PTB TypeHandlers ordered by group priority."""
+    application.add_handler(TypeHandler(Update, auth_middleware), group=-10)
+    application.add_handler(TypeHandler(Update, rate_limit_middleware), group=-9)
+    application.add_handler(TypeHandler(Update, logging_middleware), group=-8)

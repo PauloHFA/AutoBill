@@ -17,8 +17,8 @@ async def test_handle_text_message_passes_authenticated_user_id(monkeypatch, tmp
     pipeline_module.ExtractionPipeline = type("ExtractionPipeline", (), {})
     monkeypatch.setitem(sys.modules, "autobill.extract.pipeline", pipeline_module)
 
-    from autobill.bot import handlers  # noqa: PLC0415
-    from autobill.bot.state import UserState  # noqa: PLC0415
+    from autobill.bot import handlers
+    from autobill.bot.state import UserState
 
     user_state = SimpleNamespace(state=UserState.EDITING_FIELD)
     monkeypatch.setattr(handlers.state_manager, "get_state", lambda _user_id: user_state)

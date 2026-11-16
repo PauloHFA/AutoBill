@@ -19,7 +19,7 @@ def test_format_bill_summary_uses_persisted_bill_fields(monkeypatch, tmp_path) -
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     stub_bot_dependencies(monkeypatch)
 
-    from autobill.bot.formatters import format_bill_summary  # noqa: PLC0415
+    from autobill.bot.formatters import format_bill_summary
 
     bill = Bill(
         id=1,
@@ -44,7 +44,7 @@ def test_format_bill_details_and_alert_accept_missing_due_date(monkeypatch, tmp_
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     stub_bot_dependencies(monkeypatch)
 
-    from autobill.bot.formatters import (  # noqa: PLC0415
+    from autobill.bot.formatters import (
         format_alert_message,
         format_bill_details,
     )

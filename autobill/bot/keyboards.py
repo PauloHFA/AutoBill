@@ -81,19 +81,49 @@ def get_alert_config_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_snooze_keyboard(bill_id: int) -> InlineKeyboardMarkup:
-    """Keyboard for snooze options."""
+    """Keyboard for snooze options (1h, 3h, amanhã, 1/3/7 dias, custom)."""
     keyboard = [
         [
-            InlineKeyboardButton("1 dia", callback_data=f"snooze:{bill_id}:1"),
-            InlineKeyboardButton("3 dias", callback_data=f"snooze:{bill_id}:3"),
-            InlineKeyboardButton("7 dias", callback_data=f"snooze:{bill_id}:7"),
+            InlineKeyboardButton("1 hora", callback_data=f"snooze_hours:{bill_id}:1"),
+            InlineKeyboardButton("3 horas", callback_data=f"snooze_hours:{bill_id}:3"),
+            InlineKeyboardButton("Amanhã", callback_data=f"snooze:{bill_id}:1"),
         ],
         [
+            InlineKeyboardButton("3 dias", callback_data=f"snooze:{bill_id}:3"),
+            InlineKeyboardButton("7 dias", callback_data=f"snooze:{bill_id}:7"),
             InlineKeyboardButton("📅 Personalizado", callback_data=f"snooze_custom:{bill_id}"),
+        ],
+        [
             InlineKeyboardButton("❌ Cancelar", callback_data=f"snooze_cancel:{bill_id}"),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+def get_duplicate_confirm_keyboard(dup_bill_id: int) -> InlineKeyboardMarkup:
+    """Ask whether a heuristic duplicate should still be saved."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✅ Salvar mesmo assim", callback_data="dup_force:yes"),
+                InlineKeyboardButton(
+                    "❌ Descartar duplicata", callback_data=f"dup_force:no:{dup_bill_id}"
+                ),
+            ]
+        ]
+    )
+
+
+def get_pages_grouping_keyboard() -> InlineKeyboardMarkup:
+    """Finish or cancel multi-image /paginas grouping."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✅ Processar páginas", callback_data="pages:process"),
+                InlineKeyboardButton("❌ Cancelar", callback_data="pages:cancel"),
+            ]
+        ]
+    )
 
 
 def get_bills_filter_keyboard(current_filter: str = "all") -> InlineKeyboardMarkup:

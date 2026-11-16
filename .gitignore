@@ -64,9 +64,6 @@ dist/
 # Docker
 .docker/
 
-# Alembic
-autobill/db/migrations/versions/
-
 # Temporary files
 *.tmp
 *.temp

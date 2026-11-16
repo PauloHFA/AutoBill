@@ -3,13 +3,13 @@
 # Constantes para evitar magic values
 MODULO10_BASE = 10
 MODULO10_PESO_INICIAL = 2
-MODULO10_PESO_ALTERNADO = 3
+MODULO10_PESO_ALTERNADO = 1
 MIN_LENGTH_MODULO10 = 2
 
 
 def modulo10(numero: str) -> int:
     """
-    Calcula o dígito verificador módulo 10.
+    Calcula o dígito verificador módulo 10 (FEBRABAN: pesos alternados 2 e 1 da direita para a esquerda).
 
     Args:
         numero: String numérica para calcular o DV
@@ -42,7 +42,7 @@ def validar_modulo10(numero_com_dv: str) -> bool:
     Returns:
         True se válido, False caso contrário
     """
-    if len(numero_com_dv) < MIN_LENGTH_MODULO10:
+    if len(numero_com_dv) < MIN_LENGTH_MODULO10 or not numero_com_dv.isdigit():
         return False
     numero = numero_com_dv[:-1]
     dv_informado = int(numero_com_dv[-1])

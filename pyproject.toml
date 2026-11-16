@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "AutoBill Team"}
+    {name = "Sistema-Monitoramento-Boletos Team"}
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -18,7 +18,9 @@ classifiers = [
 dependencies = [
     # Core
     "python-telegram-bot>=21.0",
-    "sqlalchemy>=2.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "aiosqlite>=0.20",
+    "greenlet>=3.0",
     "alembic>=1.13",
     "pydantic>=2.8",
     "pydantic-settings>=2.4",
@@ -63,24 +65,47 @@ all = [
 ]
 
 [project.scripts]
-autobill = "autobill.main:main"
+autobill = "autobill.main:run"
 autobill-bot = "autobill.bot.handlers:run_bot"
 autobill-migrate = "autobill.db.migrations:run_migrations"
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
-select = ["E", "F", "I", "UP", "W", "C4", "C90", "PTH", "T20", "TID", "TRY", "SIM", "RET", "ARG", "ERA", "PD", "PGH", "PL", "TRY", "NPY", "RSE", "RUF", "TCH", "INT", "PERF", "PIE", "TID", "LOG"]
-ignore = ["S101", "S311", "S603", "S607"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W", "C4", "C90", "PTH", "T20", "TID", "TRY", "SIM", "RET", "ARG", "ERA", "PD", "PGH", "PL", "NPY", "RSE", "RUF", "TCH", "INT", "PERF", "PIE", "LOG"]
+ignore = [
+    "S101",
+    "S311",
+    "S603",
+    "S607",
+    "PLR0913",
+    "RUF001",
+    "RUF002",
+    "TRY003",
+    "TRY301",
+    "E501",
+    "PLR2004",
+    "PLW0603",
+    "PLC0415",
+    "C901",
+    "PLR0911",
+    "PLR0912",
+    "PLR0915",
+]
 fixable = ["ALL"]
 unfixable = ["T20", "S101", "S311", "S603", "S607"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ARG001", "ARG002", "SIM105", "SIM108", "SLF001", "B011"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
@@ -99,6 +124,17 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+
+[[tool.mypy.overrides]]
+module = [
+    "apscheduler.*",
+    "cv2.*",
+    "google.*",
+    "pypdfium2.*",
+    "pytesseract.*",
+    "pyzbar.*",
+]
+ignore_missing_imports = true
 
 [tool.coverage.run]
 source = ["autobill"]

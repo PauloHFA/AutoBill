@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     )
 
     # Telegram Bot
-    telegram_bot_token: str = Field(..., description="Token do @BotFather")
+    telegram_bot_token: str = Field(default="", description="Token do @BotFather")
     allowed_chat_ids: list[int] = Field(
         default_factory=list, description="Chats autorizados (lista de IDs)"
     )
@@ -35,6 +35,7 @@ class Settings(BaseSettings):
         default="http://ollama:11434", description="Host do Ollama para modelo local"
     )
     llm_vision_model: str = Field(default="qwen2.5-vl", description="Modelo de visão no Ollama")
+    daily_llm_limit: int = Field(default=100, description="Limite diário de chamadas LLM")
 
     # Alerts
     default_timezone: str = Field(default="America/Fortaleza", description="Fuso horário padrão")
@@ -42,6 +43,7 @@ class Settings(BaseSettings):
     lead_days: list[int] = Field(
         default_factory=lambda: [3, 1, 0], description="Antecedências dos alertas"
     )
+    currency: str = Field(default="BRL", description="Moeda padrão")
     auto_confirm: bool = Field(default=False, description="Ativar faturas válidas automaticamente")
 
     # Optional IMAP
@@ -49,11 +51,12 @@ class Settings(BaseSettings):
     imap_host: str = Field(default="imap.gmail.com", description="Host IMAP")
     imap_user: str | None = Field(default=None, description="Usuário IMAP")
     imap_password: str | None = Field(default=None, description="Senha IMAP")
+    imap_poll_seconds: int = Field(default=60, description="Intervalo de polling IMAP (segundos)")
     allowed_senders: list[str] = Field(
         default_factory=list, description="Remetentes permitidos (opcional)"
     )
 
-    # Storage
+    # Storage & Backup
     db_path: Path = Field(
         default=Path("/app/data/autobill.db"), description="Caminho do banco SQLite"
     )
@@ -61,6 +64,13 @@ class Settings(BaseSettings):
         default=90, description="Retenção de arquivos originais (dias)"
     )
     data_dir: Path = Field(default=Path("/app/data"), description="Diretório de dados")
+    backup_enabled: bool = Field(default=True, description="Habilitar backup diário do banco")
+    backup_retention_count: int = Field(
+        default=14, description="Quantidade máxima de backups mantidos"
+    )
+
+    # Operations
+    health_port: int = Field(default=8080, description="Porta do servidor /healthz")
 
     # Logging
     log_level: str = Field(default="INFO", description="Nível de log")
@@ -84,16 +94,20 @@ class Settings(BaseSettings):
     @classmethod
     def parse_allowed_senders(cls, v: str | list[str]) -> list[str]:
         if isinstance(v, str):
-            return [x.strip() for x in v.split(",") if x.strip()]
-        return v
+            return [x.strip().lower() for x in v.split(",") if x.strip()]
+        return [x.strip().lower() for x in v]
 
     @field_validator("data_dir", mode="before")
     @classmethod
     def ensure_data_dir(cls, v: str | Path) -> Path:
-        path = Path(v)
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        return Path(v)
+
+    def ensure_directories(self) -> None:
+        """Create required application data directories."""
+        for sub in ("", "inbox", "rejeitados", "revisao", "processados", "backup"):
+            target = self.data_dir / sub if sub else self.data_dir
+            target.mkdir(parents=True, exist_ok=True)
 
 
-# Global settings instance
-settings = Settings()  # type: ignore[call-arg]  # BaseSettings loads required fields from the environment.
+# Global settings instance (does not fail on import when .env is absent)
+settings = Settings()
