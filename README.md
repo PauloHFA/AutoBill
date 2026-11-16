@@ -1,10 +1,10 @@
-# AutoBill
+# Sistema-Monitoramento-Boletos
 
 Monitor inteligente de faturas e alertas de vencimento (Python, Telegram, Docker)
 
 ## Visão Geral
 
-O AutoBill recebe faturas e boletos (PDF ou imagem), extrai vencimento, valor, beneficiário e linha digitável, valida os dados matematicamente, guarda tudo em banco local e envia alertas proativos antes e no dia do vencimento, com a linha digitável pronta para copiar e botões para marcar como pago.
+O **Sistema-Monitoramento-Boletos** recebe faturas e boletos (PDF ou imagem), extrai vencimento, valor, beneficiário e linha digitável, valida os dados matematicamente, guarda tudo em banco local e envia alertas proativos antes e no dia do vencimento, com a linha digitável pronta para copiar e botões para marcar como pago.
 
 ## Funcionalidades
 
@@ -26,8 +26,8 @@ O AutoBill recebe faturas e boletos (PDF ou imagem), extrai vencimento, valor, b
 
 ```bash
 # Clone o repositório
-git clone <repo-url>
-cd AutoBill
+git clone https://github.com/PauloHFA/Sistema-Monitoramento-Boletos.git
+cd Sistema-Monitoramento-Boletos
 
 # Configure variáveis de ambiente
 cp .env.example .env
@@ -94,8 +94,8 @@ Veja `.env.example` para todas as opções. Principais:
 ## Estrutura do Projeto
 
 ```
-autobill/
-├── autobill/
+Sistema-Monitoramento-Boletos/
+├── autobill/          # Pacote Python principal
 │   ├── bot/           # Handlers, keyboards, auth do Telegram
 │   ├── ingest/        # Pasta, Telegram, IMAP, fila
 │   ├── extract/       # PDF, barras, LLM, OCR, pipeline

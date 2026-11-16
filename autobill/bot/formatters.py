@@ -203,7 +203,7 @@ def format_help_message(category: str | None = None) -> str:
 
     # General help
     return (
-        "<b>🤖 AutoBill - Monitor Inteligente de Boletos</b>\n\n"
+        "<b>🤖 Sistema de Monitoramento de Boletos</b>\n\n"
         "Extrai dados de boletos (PDF/foto), valida matematicamente,\n"
         "armazena localmente e envia alertas proativos no Telegram.\n\n"
         "<b>🚀 Início Rápido:</b>\n"
@@ -243,7 +243,7 @@ def format_welcome_message(user_name: str) -> str:
     """Format welcome message for new users."""
     return (
         f"👋 Olá, {user_name}!\n\n"
-        f"Bem-vindo ao <b>AutoBill</b> - seu monitor inteligente de boletos.\n\n"
+        f"Bem-vindo ao <b>Sistema de Monitoramento de Boletos</b>.\n\n"
         f"📋 <b>O que eu faço:</b>\n"
         f"• Extraio dados de boletos (PDF ou foto)\n"
         f"• Valido matematicamente (módulo 10/11, fator vencimento)\n"

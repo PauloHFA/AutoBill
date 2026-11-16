@@ -1,4 +1,4 @@
-"""Health check module for AutoBill."""
+"""Health check module for Sistema-Monitoramento-Boletos."""
 
 import asyncio
 import contextlib

@@ -1,4 +1,4 @@
-"""Main entry point for AutoBill."""
+"""Main entry point for Sistema-Monitoramento-Boletos."""
 
 import asyncio
 import contextlib
